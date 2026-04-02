@@ -1,0 +1,49 @@
+# Ultralytics YOLO Pose dataset configuration for Tennis Court Keypoint Detection
+#
+# 14 keypoints representing the court structure:
+#   01-04: Four outer corners (top-left, top-right, bottom-left, bottom-right)
+#   05-08: Service line intersections
+#   09-12: Service box inner corners
+#   13-14: Center service line endpoints
+#
+# Run conversion first:
+#   python scripts/convert_coco_to_yolo_kpt.py
+#
+# Then train:
+#   python -m src.training.train_court_keypoint
+
+# Path is relative to where you run training from (project root)
+path: data/processed/court_keypoint_yolo
+train: train/images
+val: valid/images
+test: test/images
+
+# Keypoint configuration
+kpt_shape: [14, 3]  # [num_keypoints, dimensions_per_kpt (x, y, visibility)]
+
+# Classes
+names:
+  0: tenniscourt
+
+# Skeleton connections for visualization (0-indexed pairs)
+# These define how keypoints are connected when drawing the court wireframe
+skeleton:
+  - [0, 4]    # corner1 -> service_line1
+  - [4, 6]    # service_line1 -> service_line3
+  - [6, 1]    # service_line3 -> corner2
+  - [1, 3]    # corner2 -> corner4
+  - [3, 7]    # corner4 -> service_line4
+  - [7, 5]    # service_line4 -> service_line2
+  - [5, 2]    # service_line2 -> corner3
+  - [2, 0]    # corner3 -> corner1
+  - [4, 8]    # service_line1 -> inner1
+  - [8, 10]   # inner1 -> inner3
+  - [10, 5]   # inner3 -> service_line2
+  - [6, 9]    # service_line3 -> inner2
+  - [9, 11]   # inner2 -> inner4
+  - [11, 7]   # inner4 -> service_line4
+  - [8, 12]   # inner1 -> center1
+  - [12, 9]   # center1 -> inner2
+  - [10, 13]  # inner3 -> center2
+  - [13, 11]  # center2 -> inner4
+  - [12, 13]  # center1 -> center2
