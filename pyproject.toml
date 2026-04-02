@@ -1,0 +1,32 @@
+[project]
+name = "tennis-analysis"
+version = "0.1.0"
+description = "Tennis ball tracking, player detection, and court keypoint detection"
+requires-python = ">=3.9"
+dependencies = [
+    "dash>=2.5.1",
+    "numpy>=1.22.4",
+    "opencv-python>=4.4.0.46",
+    "pandas>=2.0.0",
+    "Pillow>=10.0.0",
+    "plotly>=5.8.2",
+    "torch>=1.10.0",
+    "parse",
+    "tqdm",
+    "tensorboard",
+    "pycocotools",
+    "matplotlib",
+    "rfdetr",
+    "ultralytics",
+    "pyyaml",
+    "sagemaker",
+    "boto3",
+]
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
