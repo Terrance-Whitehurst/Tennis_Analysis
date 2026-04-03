@@ -60,6 +60,7 @@ rf-detr-base.pth
 reports/figures/*.jpg
 reports/figures/*.png
 reports/figures/*.mp4
+!reports/figures/demo.gif
 
 RECONSTRUCTURING.md 
 # uv lock (optional - remove if you want reproducible builds tracked)

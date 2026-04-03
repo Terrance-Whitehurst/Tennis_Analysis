@@ -1,5 +1,7 @@
 # Tennis Analysis
 
+![Tennis Analysis Demo](reports/figures/demo.gif)
+
 Tennis ball tracking, player detection, and court keypoint detection using deep learning.
 
 - **Ball Tracking**: TrackNet (2D U-Net) for heatmap prediction + InpaintNet (1D U-Net) for trajectory gap filling

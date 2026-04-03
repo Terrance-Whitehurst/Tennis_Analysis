@@ -2,8 +2,9 @@
 Test trained player detection and court keypoint models on test video.
 
 Runs RF-DETR (player detection) and YOLO-Pose (court keypoint detection)
-on each frame of the test video, saves an annotated output video, and
-prints per-frame detection summaries.
+on each frame of the test video, saves an annotated output video with
+supervision-powered visualizations: smooth player trails, clean court
+wireframe, and polished bounding boxes.
 
 Usage:
     python scripts/test_models_on_video.py
@@ -20,6 +21,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import supervision as sv
 import torch
 
 # Add project root to path
@@ -31,40 +33,37 @@ DEFAULT_PLAYER_MODEL = "models/player_detection/checkpoint_best_total.pth"
 DEFAULT_COURT_MODEL = "models/court_keypoint/best.pt"
 DEFAULT_OUTPUT_DIR = "reports/figures"
 
-# Court keypoint skeleton connections — must match configs/court_keypoint.yaml exactly
+# Court keypoint skeleton connections — 1-indexed to match supervision's EdgeAnnotator
+# (sv.EdgeAnnotator internally does xy[index - 1])
 # These trace the actual court lines (baselines, sidelines, service lines, center line)
 SKELETON = [
-    (0, 4),  # corner1 -> service_line1
-    (4, 6),  # service_line1 -> service_line3
-    (6, 1),  # service_line3 -> corner2
-    (1, 3),  # corner2 -> corner4
-    (3, 7),  # corner4 -> service_line4
-    (7, 5),  # service_line4 -> service_line2
-    (5, 2),  # service_line2 -> corner3
-    (2, 0),  # corner3 -> corner1
-    (4, 8),  # service_line1 -> inner1
-    (8, 10),  # inner1 -> inner3
-    (10, 5),  # inner3 -> service_line2
-    (6, 9),  # service_line3 -> inner2
-    (9, 11),  # inner2 -> inner4
-    (11, 7),  # inner4 -> service_line4
-    (8, 12),  # inner1 -> center1
-    (12, 9),  # center1 -> inner2
-    (10, 13),  # inner3 -> center2
-    (13, 11),  # center2 -> inner4
-    (12, 13),  # center1 -> center2 (center service line)
+    (1, 5),  # corner1 -> service_line1
+    (5, 7),  # service_line1 -> service_line3
+    (7, 2),  # service_line3 -> corner2
+    (2, 4),  # corner2 -> corner4
+    (4, 8),  # corner4 -> service_line4
+    (8, 6),  # service_line4 -> service_line2
+    (6, 3),  # service_line2 -> corner3
+    (3, 1),  # corner3 -> corner1
+    (5, 9),  # service_line1 -> inner1
+    (9, 11),  # inner1 -> inner3
+    (11, 6),  # inner3 -> service_line2
+    (7, 10),  # service_line3 -> inner2
+    (10, 12),  # inner2 -> inner4
+    (12, 8),  # inner4 -> service_line4
+    (9, 13),  # inner1 -> center1
+    (13, 10),  # center1 -> inner2
+    (11, 14),  # inner3 -> center2
+    (14, 12),  # center2 -> inner4
+    (13, 14),  # center1 -> center2 (center service line)
 ]
 
-# Colors
-PLAYER_COLORS = {
-    "player-back": (0, 255, 0),  # green
-    "player-front": (0, 0, 255),  # red
-}
-COURT_COLOR = (0, 0, 255)  # red (BGR) — matches reference style
-KEYPOINT_COLOR = (0, 0, 255)  # red
-
-
 CLASS_NAMES = ["players-balls-court", "player-back", "player-front"]
+
+# Colors
+COURT_LINE_COLOR = sv.Color.from_hex("#FF4444")  # red
+COURT_VERTEX_COLOR = sv.Color.from_hex("#FF6666")
+PLAYER_COLORS = sv.ColorPalette.from_hex(["#00FF00", "#4488FF"])  # green, blue
 
 
 def load_player_detection_model(checkpoint_path, device):
@@ -98,104 +97,30 @@ def load_court_keypoint_model(checkpoint_path):
 def run_player_detection(model, frame):
     """Run RF-DETR player detection on a single frame.
 
-    Returns list of dicts with keys: bbox, confidence, class_name.
-    Uses supervision (sv.Detections) returned by rfdetr.predict().
+    Returns sv.Detections with bounding boxes, confidence, and class IDs.
+    Strips source_image/source_shape from data to avoid indexing errors
+    with ByteTrack.
     """
     detections = model.predict(frame, threshold=0.5)
-    results = []
     if detections is None or len(detections) == 0:
-        return results
-
-    for i in range(len(detections)):
-        bbox = detections.xyxy[i].tolist()
-        conf = detections.confidence[i].item()
-        cls_id = int(detections.class_id[i])
-        class_name = (
-            CLASS_NAMES[cls_id] if cls_id < len(CLASS_NAMES) else f"class_{cls_id}"
-        )
-        results.append(
-            {
-                "bbox": bbox,
-                "confidence": conf,
-                "class_name": class_name,
-            }
-        )
-    return results
+        return sv.Detections.empty()
+    # Remove non-indexable arrays that break ByteTrack filtering
+    detections.data.pop("source_image", None)
+    detections.data.pop("source_shape", None)
+    return detections
 
 
 def run_court_keypoint(model, frame):
     """Run YOLO-Pose court keypoint detection on a single frame.
 
-    Returns list of results from ultralytics.
+    Returns sv.KeyPoints for use with supervision annotators.
     """
     results = model.predict(frame, verbose=False)
-    return results
-
-
-def draw_player_detections(frame, detections):
-    """Draw bounding boxes and labels for player detections."""
-    for det in detections:
-        x1, y1, x2, y2 = [int(c) for c in det["bbox"]]
-        class_name = det["class_name"]
-        conf = det["confidence"]
-        color = PLAYER_COLORS.get(class_name, (255, 255, 255))
-
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        label = f"{class_name} {conf:.2f}"
-        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)[0]
-        cv2.rectangle(
-            frame,
-            (x1, y1 - label_size[1] - 6),
-            (x1 + label_size[0], y1),
-            color,
-            -1,
-        )
-        cv2.putText(
-            frame,
-            label,
-            (x1, y1 - 4),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (0, 0, 0),
-            1,
-        )
-    return frame
-
-
-def draw_court_keypoints(frame, results):
-    """Draw court lines by connecting detected keypoints with the skeleton.
-
-    Draws clean red lines tracing the actual court geometry (baselines,
-    sidelines, service lines, center service line) — no bounding boxes,
-    no keypoint labels.
-    """
     if not results or len(results) == 0:
-        return frame
-
-    result = results[0]
-    if result.keypoints is None or len(result.keypoints) == 0:
-        return frame
-
-    keypoints = result.keypoints.xy.cpu().numpy()
-    if len(keypoints) == 0:
-        return frame
-
-    for kpts in keypoints:
-        # Draw skeleton lines (court wireframe)
-        for i, j in SKELETON:
-            if i < len(kpts) and j < len(kpts):
-                x1, y1 = kpts[i]
-                x2, y2 = kpts[j]
-                if x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0:
-                    cv2.line(
-                        frame,
-                        (int(x1), int(y1)),
-                        (int(x2), int(y2)),
-                        COURT_COLOR,
-                        2,
-                    )
-
-    return frame
+        return None, None
+    r = results[0]
+    keypoints = sv.KeyPoints.from_ultralytics(r)
+    return keypoints, r
 
 
 def main():
@@ -264,6 +189,54 @@ def main():
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
 
+    # --- Supervision annotators ---
+
+    # Court keypoint annotators
+    edge_annotator = sv.EdgeAnnotator(
+        color=COURT_LINE_COLOR,
+        thickness=2,
+        edges=SKELETON,
+    )
+    vertex_annotator = sv.VertexAnnotator(
+        color=COURT_VERTEX_COLOR,
+        radius=4,
+    )
+
+    # Player detection annotators
+    triangle_annotator = sv.TriangleAnnotator(
+        color=PLAYER_COLORS,
+        base=30,
+        height=25,
+        position=sv.Position.TOP_CENTER,
+        color_lookup=sv.ColorLookup.TRACK,
+        outline_thickness=2,
+        outline_color=sv.Color.BLACK,
+    )
+    ellipse_annotator = sv.EllipseAnnotator(
+        color=PLAYER_COLORS,
+        thickness=2,
+        start_angle=-45,
+        end_angle=235,
+        color_lookup=sv.ColorLookup.TRACK,
+    )
+    trace_annotator = sv.TraceAnnotator(
+        color=PLAYER_COLORS,
+        position=sv.Position.BOTTOM_CENTER,
+        trace_length=int(fps * 2),  # 2 seconds of trail
+        thickness=2,
+        smooth=True,
+        color_lookup=sv.ColorLookup.TRACK,
+    )
+
+    # Tracker and smoother for temporal consistency
+    tracker = sv.ByteTrack(
+        track_activation_threshold=0.4,
+        lost_track_buffer=int(fps),  # keep track alive for 1 second
+        minimum_matching_threshold=0.8,
+        frame_rate=int(fps),
+    )
+    smoother = sv.DetectionsSmoother(length=5)
+
     print(f"\nRunning inference on {total_frames} frames...")
     print("-" * 60)
 
@@ -279,50 +252,78 @@ def main():
 
         annotated = frame.copy()
 
-        # Player detection
-        if player_model is not None:
-            try:
-                player_dets = run_player_detection(player_model, frame)
-                annotated = draw_player_detections(annotated, player_dets)
-                total_player_dets += len(player_dets)
-                if frame_idx % 10 == 0:
-                    det_summary = ", ".join(
-                        f"{d['class_name']}({d['confidence']:.2f})" for d in player_dets
-                    )
-                    print(
-                        f"  Frame {frame_idx:4d} | Players: {len(player_dets)} [{det_summary}]"
-                    )
-            except Exception as e:
-                if frame_idx == 0:
-                    print(f"  Player detection error: {e}")
-                    print("  Trying alternative loading approach...")
-                    # RF-DETR from roboflow may use a different predict API
-                    player_model = None
-
-        # Court keypoint detection
+        # Court keypoint detection (draw first, underneath player annotations)
         if court_model is not None:
             try:
-                court_results = run_court_keypoint(court_model, frame)
-                annotated = draw_court_keypoints(annotated, court_results)
-                if (
-                    court_results
-                    and len(court_results) > 0
-                    and court_results[0].boxes is not None
-                ):
-                    total_court_dets += len(court_results[0].boxes)
-                if frame_idx % 10 == 0 and court_results:
-                    r = court_results[0]
-                    n_kpts = 0
-                    if r.keypoints is not None and len(r.keypoints) > 0:
-                        kpts = r.keypoints.xy.cpu().numpy()
-                        if len(kpts) > 0:
-                            n_kpts = np.sum((kpts[0][:, 0] > 0) & (kpts[0][:, 1] > 0))
-                    print(
-                        f"  Frame {frame_idx:4d} | Court keypoints detected: {n_kpts}/14"
-                    )
+                keypoints, raw_result = run_court_keypoint(court_model, frame)
+                if keypoints is not None and len(keypoints) > 0:
+                    annotated = edge_annotator.annotate(annotated, keypoints)
+                    annotated = vertex_annotator.annotate(annotated, keypoints)
+                    total_court_dets += 1
+
+                    if frame_idx % 10 == 0:
+                        n_kpts = 0
+                        if keypoints.xy is not None and len(keypoints.xy) > 0:
+                            kpts = keypoints.xy[0]
+                            n_kpts = np.sum((kpts[:, 0] > 0) & (kpts[:, 1] > 0))
+                        print(f"  Frame {frame_idx:4d} | Court keypoints: {n_kpts}/14")
             except Exception as e:
                 if frame_idx == 0:
                     print(f"  Court keypoint error: {e}")
+
+        # Player detection with tracking
+        if player_model is not None:
+            try:
+                detections = run_player_detection(player_model, frame)
+                if len(detections) > 0:
+                    # Track and smooth
+                    detections = tracker.update_with_detections(detections)
+                    detections = smoother.update_with_detections(detections)
+
+                    # Build labels
+                    labels = []
+                    for i in range(len(detections)):
+                        cls_id = int(detections.class_id[i])
+                        conf = detections.confidence[i]
+                        name = (
+                            CLASS_NAMES[cls_id]
+                            if cls_id < len(CLASS_NAMES)
+                            else f"class_{cls_id}"
+                        )
+                        labels.append(f"{name} {conf:.2f}")
+
+                    # Annotate: trace + ellipse (narrowed) + semi-transparent triangle
+                    annotated = trace_annotator.annotate(annotated, detections)
+                    # Shrink boxes horizontally for a tighter ellipse
+                    narrow_xyxy = detections.xyxy.copy()
+                    cx = (narrow_xyxy[:, 0] + narrow_xyxy[:, 2]) / 2
+                    half_w = (narrow_xyxy[:, 2] - narrow_xyxy[:, 0]) * 0.35
+                    narrow_xyxy[:, 0] = cx - half_w
+                    narrow_xyxy[:, 2] = cx + half_w
+                    narrow = sv.Detections(
+                        xyxy=narrow_xyxy,
+                        confidence=detections.confidence,
+                        class_id=detections.class_id,
+                        tracker_id=detections.tracker_id,
+                    )
+                    annotated = ellipse_annotator.annotate(annotated, narrow)
+                    # Semi-transparent triangle
+                    overlay = annotated.copy()
+                    overlay = triangle_annotator.annotate(overlay, detections)
+                    cv2.addWeighted(overlay, 0.5, annotated, 0.5, 0, annotated)
+
+                    total_player_dets += len(detections)
+
+                    if frame_idx % 10 == 0:
+                        det_summary = ", ".join(labels)
+                        print(
+                            f"  Frame {frame_idx:4d} | Players: {len(detections)} [{det_summary}]"
+                        )
+                elif frame_idx % 10 == 0:
+                    print(f"  Frame {frame_idx:4d} | Players: 0 []")
+            except Exception as e:
+                print(f"  Player detection error (frame {frame_idx}): {e}")
+                raise
 
         # Write frame
         out.write(annotated)
@@ -344,10 +345,11 @@ def main():
     print(f"  Time: {elapsed:.1f}s ({frame_idx / elapsed:.1f} fps)")
     if player_model is not None:
         print(
-            f"  Total player detections: {total_player_dets} ({total_player_dets / max(frame_idx, 1):.1f} avg/frame)"
+            f"  Total player detections: {total_player_dets}"
+            f" ({total_player_dets / max(frame_idx, 1):.1f} avg/frame)"
         )
     if court_model is not None:
-        print(f"  Total court detections: {total_court_dets}")
+        print(f"  Court detections: {total_court_dets}/{frame_idx} frames")
     print(f"\n  Output video: {output_path}")
 
 
