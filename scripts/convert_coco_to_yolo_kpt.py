@@ -36,11 +36,12 @@ import argparse
 import json
 import os
 import shutil
-import sys
 from pathlib import Path
 
 
-def convert_coco_to_yolo_kpt(coco_json_path, images_dir, output_images_dir, output_labels_dir, num_keypoints=14):
+def convert_coco_to_yolo_kpt(
+    coco_json_path, images_dir, output_images_dir, output_labels_dir, num_keypoints=14
+):
     """Convert a single COCO annotation file to YOLO keypoint format.
 
     Args:
@@ -132,7 +133,9 @@ def convert_coco_to_yolo_kpt(coco_json_path, images_dir, output_images_dir, outp
 
                 kpt_parts.extend([f"{kx:.6f}", f"{ky:.6f}", str(kv)])
 
-            line = f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f} " + " ".join(kpt_parts)
+            line = f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f} " + " ".join(
+                kpt_parts
+            )
             lines.append(line)
             converted_count += 1
 
@@ -144,7 +147,9 @@ def convert_coco_to_yolo_kpt(coco_json_path, images_dir, output_images_dir, outp
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert COCO keypoint annotations to YOLO pose format")
+    parser = argparse.ArgumentParser(
+        description="Convert COCO keypoint annotations to YOLO pose format"
+    )
     parser.add_argument(
         "--input",
         type=str,
@@ -168,7 +173,7 @@ def main():
     input_dir = Path(args.input)
     output_dir = Path(args.output)
 
-    print(f"Converting COCO keypoint annotations to YOLO format")
+    print("Converting COCO keypoint annotations to YOLO format")
     print(f"  Input:  {input_dir}")
     print(f"  Output: {output_dir}")
     print(f"  Keypoints: {args.num_keypoints}")
@@ -190,7 +195,7 @@ def main():
         print(f"  [{split}] Converted: {converted} annotations, Skipped: {skipped}")
 
     print(f"\nDone! YOLO dataset written to {output_dir}")
-    print(f"Use configs/court_keypoint.yaml for training with Ultralytics.")
+    print("Use configs/court_keypoint.yaml for training with Ultralytics.")
 
 
 if __name__ == "__main__":

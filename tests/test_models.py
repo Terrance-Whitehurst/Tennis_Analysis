@@ -8,7 +8,6 @@ from src.models.tracknet import (
     Triple2DConv,
     TrackNet,
     Conv1DBlock,
-    Double1DConv,
     InpaintNet,
 )
 
@@ -16,6 +15,7 @@ HEIGHT, WIDTH = 288, 512
 
 
 # ── Conv2DBlock ──────────────────────────────────────────────────────────────
+
 
 class TestConv2DBlock:
     def test_output_shape(self):
@@ -40,6 +40,7 @@ class TestConv2DBlock:
 
 # ── Double2DConv ─────────────────────────────────────────────────────────────
 
+
 class TestDouble2DConv:
     def test_output_shape(self):
         block = Double2DConv(3, 64)
@@ -50,6 +51,7 @@ class TestDouble2DConv:
 
 # ── Triple2DConv ─────────────────────────────────────────────────────────────
 
+
 class TestTriple2DConv:
     def test_output_shape(self):
         block = Triple2DConv(64, 128)
@@ -59,6 +61,7 @@ class TestTriple2DConv:
 
 
 # ── TrackNet ─────────────────────────────────────────────────────────────────
+
 
 class TestTrackNet:
     @pytest.fixture
@@ -122,6 +125,7 @@ class TestTrackNet:
 
 # ── Conv1DBlock ──────────────────────────────────────────────────────────────
 
+
 class TestConv1DBlock:
     def test_output_shape(self):
         block = Conv1DBlock(3, 32)
@@ -131,6 +135,7 @@ class TestConv1DBlock:
 
 
 # ── InpaintNet ───────────────────────────────────────────────────────────────
+
 
 class TestInpaintNet:
     @pytest.fixture

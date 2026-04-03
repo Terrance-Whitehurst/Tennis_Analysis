@@ -39,13 +39,15 @@ from pathlib import Path
 def install_dependencies():
     """Install ultralytics inside the SageMaker container at runtime."""
     print("Installing ultralytics...")
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "install", "--quiet", "ultralytics"
-    ])
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "--quiet", "ultralytics"]
+    )
     print("ultralytics installed successfully.")
 
 
-def convert_coco_to_yolo_kpt(coco_json_path, images_dir, output_images_dir, output_labels_dir, num_keypoints=14):
+def convert_coco_to_yolo_kpt(
+    coco_json_path, images_dir, output_images_dir, output_labels_dir, num_keypoints=14
+):
     """Convert COCO keypoint annotations to YOLO pose format.
 
     Inline version of scripts/convert_coco_to_yolo_kpt.py so the entry point
@@ -112,7 +114,9 @@ def convert_coco_to_yolo_kpt(coco_json_path, images_dir, output_images_dir, outp
                     kx, ky = 0.0, 0.0
                 kpt_parts.extend([f"{kx:.6f}", f"{ky:.6f}", str(kv)])
 
-            line = f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f} " + " ".join(kpt_parts)
+            line = f"{class_id} {cx:.6f} {cy:.6f} {nw:.6f} {nh:.6f} " + " ".join(
+                kpt_parts
+            )
             lines.append(line)
             converted_count += 1
 
@@ -138,8 +142,11 @@ def prepare_yolo_dataset(coco_data_dir, yolo_output_dir):
         out_labels = yolo_output_dir / split / "labels"
 
         converted, skipped = convert_coco_to_yolo_kpt(
-            str(coco_json), str(coco_data_dir / split),
-            str(out_images), str(out_labels), num_keypoints=14
+            str(coco_json),
+            str(coco_data_dir / split),
+            str(out_images),
+            str(out_labels),
+            num_keypoints=14,
         )
         print(f"  [{split}] Converted: {converted}, Skipped: {skipped}")
 
@@ -187,10 +194,22 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # SageMaker environment paths
-    parser.add_argument("--model_dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
-    parser.add_argument("--output_dir", type=str, default=os.environ.get("SM_OUTPUT_DATA_DIR", "/opt/ml/output/data"))
-    parser.add_argument("--data_dir", type=str, default=os.environ.get("SM_CHANNEL_TRAINING", "/opt/ml/input/data/training"))
-    parser.add_argument("--num_gpus", type=int, default=int(os.environ.get("SM_NUM_GPUS", 1)))
+    parser.add_argument(
+        "--model_dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model")
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=os.environ.get("SM_OUTPUT_DATA_DIR", "/opt/ml/output/data"),
+    )
+    parser.add_argument(
+        "--data_dir",
+        type=str,
+        default=os.environ.get("SM_CHANNEL_TRAINING", "/opt/ml/input/data/training"),
+    )
+    parser.add_argument(
+        "--num_gpus", type=int, default=int(os.environ.get("SM_NUM_GPUS", 1))
+    )
 
     # Model
     parser.add_argument("--model", type=str, default="yolo11m-pose.pt")
@@ -244,9 +263,9 @@ def main():
     project_dir = "/opt/ml/output/data"
     run_name = "court_keypoint"
 
-    print(f"\n{'='*60}")
-    print(f"YOLO-Pose Court Keypoint Training")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("YOLO-Pose Court Keypoint Training")
+    print(f"{'=' * 60}")
     print(f"Model:       {args.model}")
     print(f"Epochs:      {args.epochs}")
     print(f"Batch:       {args.batch}")
@@ -254,7 +273,7 @@ def main():
     print(f"LR:          {args.lr0} -> {args.lr0 * args.lrf}")
     print(f"Pose weight: {args.pose}")
     print(f"GPUs:        {args.num_gpus}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Initialize and train
     model = YOLO(args.model)
@@ -287,7 +306,7 @@ def main():
         plots=True,
     )
 
-    results = model.train(**train_kwargs)
+    _results = model.train(**train_kwargs)
 
     # Copy model artifacts to SM_MODEL_DIR for S3 upload
     print(f"\nCopying model artifacts to {args.model_dir}...")

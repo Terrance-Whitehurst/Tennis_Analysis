@@ -36,7 +36,9 @@ from ultralytics import YOLO
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="Train YOLO-Pose for court keypoint detection")
+    parser = argparse.ArgumentParser(
+        description="Train YOLO-Pose for court keypoint detection"
+    )
 
     # Model
     parser.add_argument(
@@ -55,31 +57,75 @@ def get_args():
     )
 
     # Training hyperparameters
-    parser.add_argument("--epochs", type=int, default=100, help="Number of training epochs")
-    parser.add_argument("--batch", type=int, default=16, help="Batch size (-1 for auto)")
+    parser.add_argument(
+        "--epochs", type=int, default=100, help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--batch", type=int, default=16, help="Batch size (-1 for auto)"
+    )
     parser.add_argument("--imgsz", type=int, default=640, help="Input image size")
     parser.add_argument("--lr0", type=float, default=0.01, help="Initial learning rate")
-    parser.add_argument("--lrf", type=float, default=0.01, help="Final learning rate factor (lr0 * lrf)")
-    parser.add_argument("--momentum", type=float, default=0.937, help="SGD momentum / Adam beta1")
-    parser.add_argument("--weight_decay", type=float, default=0.0005, help="Weight decay")
-    parser.add_argument("--warmup_epochs", type=float, default=3.0, help="Warmup epochs")
-    parser.add_argument("--patience", type=int, default=20, help="Early stopping patience (0 to disable)")
-    parser.add_argument("--optimizer", type=str, default="auto", choices=["SGD", "Adam", "AdamW", "auto"], help="Optimizer")
+    parser.add_argument(
+        "--lrf", type=float, default=0.01, help="Final learning rate factor (lr0 * lrf)"
+    )
+    parser.add_argument(
+        "--momentum", type=float, default=0.937, help="SGD momentum / Adam beta1"
+    )
+    parser.add_argument(
+        "--weight_decay", type=float, default=0.0005, help="Weight decay"
+    )
+    parser.add_argument(
+        "--warmup_epochs", type=float, default=3.0, help="Warmup epochs"
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=20,
+        help="Early stopping patience (0 to disable)",
+    )
+    parser.add_argument(
+        "--optimizer",
+        type=str,
+        default="auto",
+        choices=["SGD", "Adam", "AdamW", "auto"],
+        help="Optimizer",
+    )
 
     # Augmentation
-    parser.add_argument("--hsv_h", type=float, default=0.015, help="HSV hue augmentation")
-    parser.add_argument("--hsv_s", type=float, default=0.7, help="HSV saturation augmentation")
-    parser.add_argument("--hsv_v", type=float, default=0.4, help="HSV value augmentation")
-    parser.add_argument("--degrees", type=float, default=0.0, help="Rotation augmentation degrees")
-    parser.add_argument("--translate", type=float, default=0.1, help="Translation augmentation")
+    parser.add_argument(
+        "--hsv_h", type=float, default=0.015, help="HSV hue augmentation"
+    )
+    parser.add_argument(
+        "--hsv_s", type=float, default=0.7, help="HSV saturation augmentation"
+    )
+    parser.add_argument(
+        "--hsv_v", type=float, default=0.4, help="HSV value augmentation"
+    )
+    parser.add_argument(
+        "--degrees", type=float, default=0.0, help="Rotation augmentation degrees"
+    )
+    parser.add_argument(
+        "--translate", type=float, default=0.1, help="Translation augmentation"
+    )
     parser.add_argument("--scale", type=float, default=0.5, help="Scale augmentation")
-    parser.add_argument("--fliplr", type=float, default=0.0, help="Horizontal flip probability (0.0 for court — flipping breaks keypoint order)")
-    parser.add_argument("--mosaic", type=float, default=1.0, help="Mosaic augmentation probability")
+    parser.add_argument(
+        "--fliplr",
+        type=float,
+        default=0.0,
+        help="Horizontal flip probability (0.0 for court — flipping breaks keypoint order)",
+    )
+    parser.add_argument(
+        "--mosaic", type=float, default=1.0, help="Mosaic augmentation probability"
+    )
 
     # Loss weights
-    parser.add_argument("--pose", type=float, default=12.0, help="Pose/keypoint loss weight")
+    parser.add_argument(
+        "--pose", type=float, default=12.0, help="Pose/keypoint loss weight"
+    )
     parser.add_argument("--box", type=float, default=7.5, help="Box loss weight")
-    parser.add_argument("--cls", type=float, default=0.5, help="Classification loss weight")
+    parser.add_argument(
+        "--cls", type=float, default=0.5, help="Classification loss weight"
+    )
     parser.add_argument("--dfl", type=float, default=1.5, help="DFL loss weight")
 
     # Output
@@ -97,11 +143,18 @@ def get_args():
     )
 
     # Hardware
-    parser.add_argument("--device", type=str, default=None, help="Device (0, 0,1, cpu, mps). Auto-detected if not set.")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Device (0, 0,1, cpu, mps). Auto-detected if not set.",
+    )
     parser.add_argument("--workers", type=int, default=8, help="DataLoader workers")
 
     # Resume
-    parser.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume training")
+    parser.add_argument(
+        "--resume", type=str, default=None, help="Path to checkpoint to resume training"
+    )
 
     return parser.parse_args()
 
@@ -120,12 +173,16 @@ def ensure_dataset_converted(data_yaml_path):
         print(f"YOLO dataset not found at {dataset_path}")
         print("Running COCO-to-YOLO converter...")
         from scripts.convert_coco_to_yolo_kpt import main as convert_main
-        sys.argv = ["convert_coco_to_yolo_kpt.py"]  # Reset argv for converter's argparse
+
+        sys.argv = [
+            "convert_coco_to_yolo_kpt.py"
+        ]  # Reset argv for converter's argparse
         convert_main()
         print()
 
-    assert train_images.exists(), \
+    assert train_images.exists(), (
         f"Training images not found at {train_images}. Run: python scripts/convert_coco_to_yolo_kpt.py"
+    )
 
 
 def train(args):
@@ -204,13 +261,14 @@ def train(args):
         dest = Path("models") / "court_keypoint_yolo_best.pt"
         os.makedirs(dest.parent, exist_ok=True)
         import shutil
+
         shutil.copy2(best_weights, dest)
         print(f"\nBest weights copied to {dest}")
 
     # Run validation on best model
     print("\nRunning final validation...")
     best_model = YOLO(str(best_weights)) if best_weights.exists() else model
-    val_results = best_model.val(data=str(data_path))
+    _val_results = best_model.val(data=str(data_path))
 
     print("\n=== Training Complete ===")
     print(f"Best weights: {best_weights}")

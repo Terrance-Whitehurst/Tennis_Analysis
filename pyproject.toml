@@ -19,7 +19,7 @@ dependencies = [
     "rfdetr",
     "ultralytics",
     "pyyaml",
-    "sagemaker",
+    "sagemaker>=2.200,<3",
     "boto3",
 ]
 

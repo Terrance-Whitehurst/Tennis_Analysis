@@ -34,9 +34,9 @@ import sys
 def install_dependencies():
     """Install rfdetr inside the SageMaker container at runtime."""
     print("Installing rfdetr...")
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "install", "--quiet", "rfdetr"
-    ])
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "--quiet", "rfdetr[train,loggers]"]
+    )
     print("rfdetr installed successfully.")
 
 
@@ -44,10 +44,22 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     # SageMaker environment paths
-    parser.add_argument("--model_dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model"))
-    parser.add_argument("--output_dir", type=str, default=os.environ.get("SM_OUTPUT_DATA_DIR", "/opt/ml/output/data"))
-    parser.add_argument("--data_dir", type=str, default=os.environ.get("SM_CHANNEL_TRAINING", "/opt/ml/input/data/training"))
-    parser.add_argument("--num_gpus", type=int, default=int(os.environ.get("SM_NUM_GPUS", 1)))
+    parser.add_argument(
+        "--model_dir", type=str, default=os.environ.get("SM_MODEL_DIR", "/opt/ml/model")
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default=os.environ.get("SM_OUTPUT_DATA_DIR", "/opt/ml/output/data"),
+    )
+    parser.add_argument(
+        "--data_dir",
+        type=str,
+        default=os.environ.get("SM_CHANNEL_TRAINING", "/opt/ml/input/data/training"),
+    )
+    parser.add_argument(
+        "--num_gpus", type=int, default=int(os.environ.get("SM_NUM_GPUS", 1))
+    )
 
     # Model
     parser.add_argument("--model", type=str, default="base", choices=["base", "large"])
@@ -78,19 +90,21 @@ def main():
     print(f"Data directory: {data_dir}")
     print(f"Contents: {os.listdir(data_dir)}")
 
-    assert os.path.exists(os.path.join(data_dir, "train", "_annotations.coco.json")), \
+    assert os.path.exists(os.path.join(data_dir, "train", "_annotations.coco.json")), (
         f"Training annotations not found in {data_dir}/train/"
-    assert os.path.exists(os.path.join(data_dir, "valid", "_annotations.coco.json")), \
+    )
+    assert os.path.exists(os.path.join(data_dir, "valid", "_annotations.coco.json")), (
         f"Validation annotations not found in {data_dir}/valid/"
+    )
 
     # Working directory for training outputs (inside container)
     work_dir = "/opt/ml/output/data/training_run"
     os.makedirs(work_dir, exist_ok=True)
 
     # Initialize model
-    print(f"\n{'='*60}")
-    print(f"RF-DETR Player Detection Training")
-    print(f"{'='*60}")
+    print(f"\n{'=' * 60}")
+    print("RF-DETR Player Detection Training")
+    print(f"{'=' * 60}")
     print(f"Model:       {args.model}")
     print(f"Epochs:      {args.epochs}")
     print(f"Batch size:  {args.batch_size}")
@@ -98,12 +112,12 @@ def main():
     print(f"Image size:  {args.image_size}")
     print(f"Grad accum:  {args.grad_accum_steps}")
     print(f"GPUs:        {args.num_gpus}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     if args.model == "large":
-        model = RFDETRLarge(pretrained=True)
+        model = RFDETRLarge()
     else:
-        model = RFDETRBase(pretrained=True)
+        model = RFDETRBase()
 
     # Train
     model.train(
@@ -139,7 +153,7 @@ def main():
         src = os.path.join(work_dir, candidate)
         if os.path.exists(src):
             shutil.copy2(src, os.path.join(args.model_dir, "model.pt"))
-            print(f"  Best model saved as model.pt")
+            print("  Best model saved as model.pt")
             break
 
     print("\nTraining complete! Model artifacts will be uploaded to S3.")
