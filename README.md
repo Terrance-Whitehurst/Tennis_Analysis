@@ -8,49 +8,69 @@ Tennis ball tracking, player detection, and court keypoint detection using deep 
 
 ## Project Structure
 
+This project follows the [Cookiecutter Data Science](https://cookiecutter-data-science.drivendata.org/) (CCDS v2) convention.
+
 ```
 Tennis_Analysis/
+├── Makefile                  # Convenience commands (make train, make test, etc.)
+├── README.md                 # This file
+├── pyproject.toml            # Package metadata and dependencies
+├── requirements.txt          # Flat dependency list
+│
 ├── configs/                  # Experiment configs and label corrections
 │   ├── drop_frame.json
 │   ├── court_keypoint.yaml   # YOLO dataset config for court keypoints
 │   └── corrected_test_label/
-├── data/                     # Dataset storage (not committed)
-│   ├── raw/                  # Original datasets and test videos
-│   ├── interim/              # Intermediate processed data
-│   └── processed/            # Final processed data
-├── experiments/              # Experiment outputs and tracking
-├── models/                   # Saved model checkpoints
-│   ├── TrackNet_best.pt
-│   └── InpaintNet_best.pt
-├── notebooks/                # Research and exploration notebooks
-├── src/                      # Main Python package
-│   ├── datasets/             # Dataset loaders
+│
+├── data/                     # Dataset storage — NOT committed to git
+│   ├── raw/                  # Original immutable datasets and test videos
+│   ├── interim/              # Intermediate transformed data
+│   ├── processed/            # Final canonical data for modeling
+│   └── external/             # Third-party data sources
+│
+├── docs/                     # Project documentation
+├── references/               # Data dictionaries, manuals, explanatory materials
+├── reports/                  # Generated analysis outputs
+│   └── figures/              # Generated graphics and annotated frames
+│
+├── models/                   # Trained model checkpoints (not committed)
+│   ├── player_detection/     # RF-DETR checkpoints from SageMaker
+│   └── court_keypoint/       # YOLO-Pose weights from SageMaker
+│
+├── notebooks/                # Jupyter notebooks for exploration
+│                             # Naming: <number>-<initials>-<description>.ipynb
+│
+├── experiments/              # Experiment outputs, TensorBoard logs, results
+│
+├── src/                      # Main Python package (installable via pip install -e .)
+│   ├── datasets/             # Data loading and preprocessing
 │   │   └── tracknet_dataset.py
-│   ├── models/               # Model architectures
+│   ├── models/               # Model architecture definitions
 │   │   └── tracknet.py       # TrackNet + InpaintNet
-│   ├── training/             # Training loops
+│   ├── training/             # Training loops and schedulers
 │   │   ├── train_tracknet.py
 │   │   ├── train_player_detection.py   # RF-DETR
 │   │   └── train_court_keypoint.py     # YOLO-Pose
-│   ├── evaluation/           # Metrics and evaluation
+│   ├── evaluation/           # Metrics and evaluation pipelines
 │   │   └── evaluate.py
-│   ├── inference/            # Inference pipelines
-│   │   ├── ball_tracking.py  # End-to-end video tracking
+│   ├── inference/            # Inference and prediction pipelines
+│   │   ├── ball_tracking.py  # End-to-end video ball tracking
 │   │   └── predict.py        # Batch prediction
-│   └── utils/                # Shared utilities
-│       ├── general.py        # Helper functions and constants
-│       ├── metric.py         # Loss functions and metrics
-│       └── visualize.py      # Visualization and TensorBoard logging
-├── scripts/                  # CLI scripts
+│   └── utils/                # Shared helpers, constants, visualization
+│       ├── general.py
+│       ├── metric.py
+│       └── visualize.py
+│
+├── scripts/                  # Standalone CLI scripts (not part of the package)
 │   ├── preprocess.py         # Data preprocessing
 │   ├── correct_label.py      # Interactive label correction UI
 │   ├── error_analysis.py     # Error analysis dashboard
 │   ├── generate_mask_data.py # Generate inpainting masks
-│   └── convert_coco_to_yolo_kpt.py  # Dataset format converter
-├── tests/                    # Unit tests
-├── pyproject.toml
-├── requirements.txt
-└── README.md
+│   ├── convert_coco_to_yolo_kpt.py  # Dataset format converter
+│   ├── test_models_on_video.py      # Run all models on test video
+│   └── sagemaker/            # AWS SageMaker training launchers
+│
+└── tests/                    # Unit and integration tests
 ```
 
 ## Setup
@@ -61,9 +81,27 @@ uv pip install -e .
 
 # Or with requirements.txt
 uv pip install -r requirements.txt
+
+# Pull trained models from S3 (requires AWS credentials)
+make pull-models
 ```
 
 ## Usage
+
+Use `make help` to see all available commands.
+
+### Test All Models on Video
+
+```bash
+# Run player detection + court keypoint models on test video
+make test-models
+
+# Or directly:
+python scripts/test_models_on_video.py --video data/raw/test_video/Test_Clip_1.mp4
+python scripts/test_models_on_video.py --save-frames  # also save annotated frames
+```
+
+Output goes to `reports/figures/` (annotated video + sample frames).
 
 ### Inference (Ball Tracking)
 
@@ -257,14 +295,20 @@ Add `--spot` for ~60-70% cost savings (jobs may be interrupted and restarted).
 
 ### Retrieving Trained Models
 
-After training completes, model artifacts are saved to S3:
+After training completes, model artifacts are saved to S3. Use the Makefile target:
 ```bash
-# Download model from S3
-aws s3 cp s3://<bucket>/tennis-analysis/models/player_detection/<job>/output/model.tar.gz .
-tar xzf model.tar.gz -C models/
-
-# Or use the SageMaker console to find the S3 path
+make pull-models
 ```
+
+Or manually:
+```bash
+aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/player_detection/<job>/output/model.tar.gz models/player_detection/
+aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/court_keypoint/<job>/output/model.tar.gz models/court_keypoint/
+tar xzf models/player_detection/model.tar.gz -C models/player_detection/
+tar xzf models/court_keypoint/model.tar.gz -C models/court_keypoint/
+```
+
+Model checkpoints are stored in `models/` (gitignored). Architecture definitions live in `src/models/`.
 
 ## References
 
