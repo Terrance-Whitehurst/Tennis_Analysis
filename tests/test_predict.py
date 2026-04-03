@@ -1,6 +1,5 @@
 """Tests for the predict function in src/inference/predict.py."""
 
-import numpy as np
 import pytest
 import torch
 

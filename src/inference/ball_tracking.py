@@ -157,9 +157,7 @@ def generate_median_frame(
     median: npt.NDArray[np.float64] = np.median(frames, axis=0)[..., ::-1]
     # Resize to model input size
     median_img: Image.Image = Image.fromarray(median.astype("uint8"))
-    median_resized: npt.NDArray[np.uint8] = np.array(
-        median_img.resize((WIDTH, HEIGHT))
-    )
+    median_resized: npt.NDArray[np.uint8] = np.array(median_img.resize((WIDTH, HEIGHT)))
     # HWC -> CHW
     median_chw: npt.NDArray[np.uint8] = np.moveaxis(median_resized, -1, 0)
     return median_chw
@@ -227,9 +225,7 @@ def predict_ball_from_heatmap(
     if not contours:
         return 0, 0
 
-    rects: list[tuple[int, int, int, int]] = [
-        cv2.boundingRect(c) for c in contours
-    ]
+    rects: list[tuple[int, int, int, int]] = [cv2.boundingRect(c) for c in contours]
     largest: tuple[int, int, int, int] = max(rects, key=lambda r: r[2] * r[3])
     x, y, w, h = largest
     return x + w // 2, y + h // 2
@@ -366,11 +362,6 @@ def track_balls(
         "Visibility": [],
     }
 
-    if eval_mode == "nonoverlap":
-        step: int = seq_len
-    else:
-        step = 1
-
     num_sequences: int = max(1, video_len - seq_len + 1)
     weight: torch.Tensor = get_ensemble_weight(seq_len, eval_mode)
 
@@ -392,12 +383,8 @@ def track_balls(
             while len(frame_seq) < seq_len:
                 frame_seq.append(frame_seq[-1])
 
-            x: npt.NDArray[np.float64] = preprocess_sequence(
-                frame_seq, median, bg_mode
-            )
-            x_tensor: torch.Tensor = (
-                torch.from_numpy(x).float().unsqueeze(0).to(device)
-            )
+            x: npt.NDArray[np.float64] = preprocess_sequence(frame_seq, median, bg_mode)
+            x_tensor: torch.Tensor = torch.from_numpy(x).float().unsqueeze(0).to(device)
 
             with torch.no_grad():
                 y_pred: torch.Tensor = tracknet(x_tensor).detach().cpu()
@@ -406,8 +393,8 @@ def track_balls(
             y_pred_buffer = torch.cat((y_pred_buffer, y_pred), dim=0)
 
             if sample_count < buffer_size:
-                ensembled: torch.Tensor = (
-                    y_pred_buffer[batch_i + 0, frame_i].sum(0) / (sample_count + 1)
+                ensembled: torch.Tensor = y_pred_buffer[batch_i + 0, frame_i].sum(0) / (
+                    sample_count + 1
                 )
             else:
                 ensembled = (
@@ -415,9 +402,9 @@ def track_balls(
                 ).sum(0)
 
             # Extract ball position from ensembled heatmap
-            heatmap: npt.NDArray[np.uint8] = (
-                (ensembled.numpy() > 0.5).astype("uint8") * 255
-            )
+            heatmap: npt.NDArray[np.uint8] = (ensembled.numpy() > 0.5).astype(
+                "uint8"
+            ) * 255
             cx, cy = predict_ball_from_heatmap(heatmap)
             cx_orig: int = int(cx * w_scaler)
             cy_orig: int = int(cy * h_scaler)
@@ -439,8 +426,8 @@ def track_balls(
                 for f in range(1, seq_len):
                     if s + f >= video_len:
                         break
-                    ensembled = (
-                        y_pred_buffer[batch_i + f, frame_i].sum(0) / (seq_len - f)
+                    ensembled = y_pred_buffer[batch_i + f, frame_i].sum(0) / (
+                        seq_len - f
                     )
                     heatmap = (ensembled.numpy() > 0.5).astype("uint8") * 255
                     cx, cy = predict_ball_from_heatmap(heatmap)
@@ -489,8 +476,10 @@ def track_balls(
 
             print(f"  TrackNet: frames {s}-{end_idx}/{video_len}")
 
-    print(f"TrackNet done: {len(pred_dict['Frame'])} frames, "
-          f"{sum(pred_dict['Visibility'])} detections")
+    print(
+        f"TrackNet done: {len(pred_dict['Frame'])} frames, "
+        f"{sum(pred_dict['Visibility'])} detections"
+    )
 
     # --- InpaintNet (trajectory gap filling) ---
     if inpaintnet_path:
@@ -499,20 +488,14 @@ def track_balls(
         inpaintnet, inp_seq_len = load_inpaintnet(inpaintnet_path, device)
         print(f"InpaintNet loaded (seq_len={inp_seq_len})")
 
-        inpaint_mask: list[int] = generate_inpaint_mask(
-            pred_dict, th_h=h * 0.05
-        )
+        inpaint_mask: list[int] = generate_inpaint_mask(pred_dict, th_h=h * 0.05)
         n_inpaint: int = sum(inpaint_mask)
         print(f"Frames to inpaint: {n_inpaint}")
 
         if n_inpaint > 0:
             # Prepare coordinate sequences for InpaintNet
-            xs: npt.NDArray[np.float64] = (
-                np.array(pred_dict["X"]) / (w_scaler * WIDTH)
-            )
-            ys: npt.NDArray[np.float64] = (
-                np.array(pred_dict["Y"]) / (h_scaler * HEIGHT)
-            )
+            xs: npt.NDArray[np.float64] = np.array(pred_dict["X"]) / (w_scaler * WIDTH)
+            ys: npt.NDArray[np.float64] = np.array(pred_dict["Y"]) / (h_scaler * HEIGHT)
 
             num_frames: int = len(xs)
             # Process in sliding windows
@@ -520,12 +503,10 @@ def track_balls(
                 end: int = min(start + inp_seq_len, num_frames)
                 sl: slice = slice(start, end)
 
-                coords: npt.NDArray[np.float64] = np.stack(
-                    [xs[sl], ys[sl]], axis=-1
+                coords: npt.NDArray[np.float64] = np.stack([xs[sl], ys[sl]], axis=-1)
+                mask_seq: npt.NDArray[np.float64] = np.array(inpaint_mask[sl]).reshape(
+                    -1, 1
                 )
-                mask_seq: npt.NDArray[np.float64] = np.array(
-                    inpaint_mask[sl]
-                ).reshape(-1, 1)
 
                 if mask_seq.sum() == 0:
                     continue
@@ -593,7 +574,10 @@ def draw_ball_trajectory(
         if pos is not None:
             x, y = pos
             bbox: tuple[int, int, int, int] = (
-                x - radius, y - radius, x + radius, y + radius
+                x - radius,
+                y - radius,
+                x + radius,
+                y + radius,
             )
             draw.ellipse(bbox, fill="white", outline="yellow")
 
@@ -620,9 +604,7 @@ def process_video(
         traj_len: Number of past positions to draw as trajectory trail.
     """
     # Run tracking
-    pred_dict: dict[str, list] = track_balls(
-        input_path, tracknet_path, inpaintnet_path
-    )
+    pred_dict: dict[str, list] = track_balls(input_path, tracknet_path, inpaintnet_path)
 
     # Write output video with trajectory overlay
     print("Writing output video...")
@@ -656,15 +638,20 @@ def process_video(
         annotated: npt.NDArray[np.uint8] = draw_ball_trajectory(frame, trajectory)
 
         # Add info text
-        vis_count: int = sum(pred_dict["Visibility"][:frame_idx + 1])
+        vis_count: int = sum(pred_dict["Visibility"][: frame_idx + 1])
         info: str = (
             f"Frame {frame_idx} | "
             f"Ball: {'DETECTED' if frame_idx < len(pred_dict['Visibility']) and pred_dict['Visibility'][frame_idx] else 'MISSING'} | "
             f"Detections: {vis_count}/{frame_idx + 1}"
         )
         cv2.putText(
-            annotated, info, (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2,
+            annotated,
+            info,
+            (10, 30),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 255, 255),
+            2,
         )
 
         out.write(annotated)
@@ -677,6 +664,7 @@ def process_video(
     # Save CSV
     csv_path: str = output_path.replace(".mp4", "_ball.csv")
     import pandas as pd
+
     pd.DataFrame(pred_dict).to_csv(csv_path, index=False)
     print(f"Ball positions saved to {csv_path}")
 

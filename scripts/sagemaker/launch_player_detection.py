@@ -42,28 +42,69 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Launch RF-DETR training on SageMaker")
 
     # AWS / SageMaker
-    parser.add_argument("--role", type=str, required=True, help="SageMaker execution role ARN")
-    parser.add_argument("--region", type=str, default=None, help="AWS region (auto-detected if not set)")
-    parser.add_argument("--instance_type", type=str, default="ml.g4dn.xlarge",
-                        help="SageMaker instance type (ml.g4dn.xlarge, ml.g5.xlarge, ml.g5.2xlarge, ml.p3.2xlarge)")
-    parser.add_argument("--instance_count", type=int, default=1, help="Number of training instances")
-    parser.add_argument("--volume_size", type=int, default=50, help="EBS volume size in GB")
-    parser.add_argument("--max_runtime", type=int, default=86400, help="Max training time in seconds (default: 24h)")
-    parser.add_argument("--spot", action="store_true", help="Use spot instances (cheaper but can be interrupted)")
+    parser.add_argument(
+        "--role", type=str, required=True, help="SageMaker execution role ARN"
+    )
+    parser.add_argument(
+        "--region", type=str, default=None, help="AWS region (auto-detected if not set)"
+    )
+    parser.add_argument(
+        "--instance_type",
+        type=str,
+        default="ml.g4dn.xlarge",
+        help="SageMaker instance type (ml.g4dn.xlarge, ml.g5.xlarge, ml.g5.2xlarge, ml.p3.2xlarge)",
+    )
+    parser.add_argument(
+        "--instance_count", type=int, default=1, help="Number of training instances"
+    )
+    parser.add_argument(
+        "--volume_size", type=int, default=50, help="EBS volume size in GB"
+    )
+    parser.add_argument(
+        "--max_runtime",
+        type=int,
+        default=86400,
+        help="Max training time in seconds (default: 24h)",
+    )
+    parser.add_argument(
+        "--spot",
+        action="store_true",
+        help="Use spot instances (cheaper but can be interrupted)",
+    )
 
     # Data
-    parser.add_argument("--s3_data", type=str, default=None,
-                        help="S3 URI of dataset. If not set, uploads from --local_data")
-    parser.add_argument("--local_data", type=str, default="data/raw/Player_Detection",
-                        help="Local dataset path to upload to S3")
-    parser.add_argument("--s3_bucket", type=str, default=None,
-                        help="S3 bucket for data upload (default: SageMaker default bucket)")
-    parser.add_argument("--s3_prefix", type=str, default="tennis-analysis/datasets/Player_Detection",
-                        help="S3 prefix for data upload")
+    parser.add_argument(
+        "--s3_data",
+        type=str,
+        default=None,
+        help="S3 URI of dataset. If not set, uploads from --local_data",
+    )
+    parser.add_argument(
+        "--local_data",
+        type=str,
+        default="data/raw/Player_Detection",
+        help="Local dataset path to upload to S3",
+    )
+    parser.add_argument(
+        "--s3_bucket",
+        type=str,
+        default=None,
+        help="S3 bucket for data upload (default: SageMaker default bucket)",
+    )
+    parser.add_argument(
+        "--s3_prefix",
+        type=str,
+        default="tennis-analysis/datasets/Player_Detection",
+        help="S3 prefix for data upload",
+    )
 
     # Model output
-    parser.add_argument("--s3_output", type=str, default=None,
-                        help="S3 URI for model output (default: s3://<bucket>/tennis-analysis/models/)")
+    parser.add_argument(
+        "--s3_output",
+        type=str,
+        default=None,
+        help="S3 URI for model output (default: s3://<bucket>/tennis-analysis/models/)",
+    )
 
     # Training hyperparameters (passed to entry point)
     parser.add_argument("--model", type=str, default="base", choices=["base", "large"])
@@ -77,8 +118,15 @@ def parse_args():
     parser.add_argument("--num_workers", type=int, default=4)
 
     # Job config
-    parser.add_argument("--job_name", type=str, default=None, help="Training job name (auto-generated if not set)")
-    parser.add_argument("--wait", action="store_true", help="Wait for job to complete (blocks)")
+    parser.add_argument(
+        "--job_name",
+        type=str,
+        default=None,
+        help="Training job name (auto-generated if not set)",
+    )
+    parser.add_argument(
+        "--wait", action="store_true", help="Wait for job to complete (blocks)"
+    )
     parser.add_argument("--tags", type=str, nargs="*", help="Tags as key=value pairs")
 
     return parser.parse_args()
@@ -110,11 +158,17 @@ def main():
         s3_data_uri = args.s3_data
         print(f"Using existing S3 data: {s3_data_uri}")
     else:
-        assert os.path.exists(args.local_data), f"Local data not found: {args.local_data}"
-        s3_data_uri = upload_data_to_s3(args.local_data, bucket, args.s3_prefix, boto_session)
+        assert os.path.exists(args.local_data), (
+            f"Local data not found: {args.local_data}"
+        )
+        s3_data_uri = upload_data_to_s3(
+            args.local_data, bucket, args.s3_prefix, boto_session
+        )
 
     # S3 output path
-    s3_output = args.s3_output or f"s3://{bucket}/tennis-analysis/models/player_detection"
+    s3_output = (
+        args.s3_output or f"s3://{bucket}/tennis-analysis/models/player_detection"
+    )
 
     # Job name
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -130,11 +184,15 @@ def main():
     tags.append({"Key": "task", "Value": "player-detection"})
 
     # Spot instance config
-    checkpoint_s3 = f"s3://{bucket}/tennis-analysis/checkpoints/player_detection/" if args.spot else None
+    checkpoint_s3 = (
+        f"s3://{bucket}/tennis-analysis/checkpoints/player_detection/"
+        if args.spot
+        else None
+    )
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"SageMaker Training Job: {job_name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Instance:    {args.instance_type} x {args.instance_count}")
     print(f"Spot:        {args.spot}")
     print(f"Data:        {s3_data_uri}")
@@ -144,7 +202,7 @@ def main():
     print(f"Batch size:  {args.batch_size}")
     print(f"LR:          {args.lr}")
     print(f"Image size:  {args.image_size}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Configure PyTorch estimator
     estimator = PyTorch(
@@ -185,11 +243,13 @@ def main():
     )
 
     if args.wait:
-        print(f"\nTraining complete!")
+        print("\nTraining complete!")
         print(f"Model artifacts: {estimator.model_data}")
     else:
         print(f"\nTraining job submitted: {job_name}")
-        print(f"Monitor at: https://{boto_session.region_name}.console.aws.amazon.com/sagemaker/home#/jobs/{job_name}")
+        print(
+            f"Monitor at: https://{boto_session.region_name}.console.aws.amazon.com/sagemaker/home#/jobs/{job_name}"
+        )
 
     return estimator
 

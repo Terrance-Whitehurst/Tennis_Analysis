@@ -41,25 +41,46 @@ from sagemaker.pytorch import PyTorch
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Launch YOLO-Pose training on SageMaker")
+    parser = argparse.ArgumentParser(
+        description="Launch YOLO-Pose training on SageMaker"
+    )
 
     # AWS / SageMaker
-    parser.add_argument("--role", type=str, required=True, help="SageMaker execution role ARN")
+    parser.add_argument(
+        "--role", type=str, required=True, help="SageMaker execution role ARN"
+    )
     parser.add_argument("--region", type=str, default=None, help="AWS region")
-    parser.add_argument("--instance_type", type=str, default="ml.g4dn.xlarge",
-                        help="SageMaker instance type")
+    parser.add_argument(
+        "--instance_type",
+        type=str,
+        default="ml.g4dn.xlarge",
+        help="SageMaker instance type",
+    )
     parser.add_argument("--instance_count", type=int, default=1)
-    parser.add_argument("--volume_size", type=int, default=50, help="EBS volume size in GB")
-    parser.add_argument("--max_runtime", type=int, default=86400, help="Max training time in seconds")
+    parser.add_argument(
+        "--volume_size", type=int, default=50, help="EBS volume size in GB"
+    )
+    parser.add_argument(
+        "--max_runtime", type=int, default=86400, help="Max training time in seconds"
+    )
     parser.add_argument("--spot", action="store_true", help="Use spot instances")
 
     # Data
-    parser.add_argument("--s3_data", type=str, default=None,
-                        help="S3 URI of COCO keypoint dataset")
-    parser.add_argument("--local_data", type=str, default="data/raw/Tennis_Court_Keypoint",
-                        help="Local dataset path to upload")
+    parser.add_argument(
+        "--s3_data", type=str, default=None, help="S3 URI of COCO keypoint dataset"
+    )
+    parser.add_argument(
+        "--local_data",
+        type=str,
+        default="data/raw/Tennis_Court_Keypoint",
+        help="Local dataset path to upload",
+    )
     parser.add_argument("--s3_bucket", type=str, default=None)
-    parser.add_argument("--s3_prefix", type=str, default="tennis-analysis/datasets/Tennis_Court_Keypoint")
+    parser.add_argument(
+        "--s3_prefix",
+        type=str,
+        default="tennis-analysis/datasets/Tennis_Court_Keypoint",
+    )
 
     # Model output
     parser.add_argument("--s3_output", type=str, default=None)
@@ -117,8 +138,12 @@ def main():
         s3_data_uri = args.s3_data
         print(f"Using existing S3 data: {s3_data_uri}")
     else:
-        assert os.path.exists(args.local_data), f"Local data not found: {args.local_data}"
-        s3_data_uri = upload_data_to_s3(args.local_data, bucket, args.s3_prefix, boto_session)
+        assert os.path.exists(args.local_data), (
+            f"Local data not found: {args.local_data}"
+        )
+        s3_data_uri = upload_data_to_s3(
+            args.local_data, bucket, args.s3_prefix, boto_session
+        )
 
     s3_output = args.s3_output or f"s3://{bucket}/tennis-analysis/models/court_keypoint"
 
@@ -134,11 +159,15 @@ def main():
     tags.append({"Key": "project", "Value": "tennis-analysis"})
     tags.append({"Key": "task", "Value": "court-keypoint"})
 
-    checkpoint_s3 = f"s3://{bucket}/tennis-analysis/checkpoints/court_keypoint/" if args.spot else None
+    checkpoint_s3 = (
+        f"s3://{bucket}/tennis-analysis/checkpoints/court_keypoint/"
+        if args.spot
+        else None
+    )
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"SageMaker Training Job: {job_name}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Instance:    {args.instance_type} x {args.instance_count}")
     print(f"Spot:        {args.spot}")
     print(f"Data:        {s3_data_uri}")
@@ -148,7 +177,7 @@ def main():
     print(f"Batch:       {args.batch}")
     print(f"Image size:  {args.imgsz}")
     print(f"Pose weight: {args.pose}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     estimator = PyTorch(
         entry_point="entry_court_keypoint.py",
@@ -197,11 +226,13 @@ def main():
     )
 
     if args.wait:
-        print(f"\nTraining complete!")
+        print("\nTraining complete!")
         print(f"Model artifacts: {estimator.model_data}")
     else:
         print(f"\nTraining job submitted: {job_name}")
-        print(f"Monitor at: https://{boto_session.region_name}.console.aws.amazon.com/sagemaker/home#/jobs/{job_name}")
+        print(
+            f"Monitor at: https://{boto_session.region_name}.console.aws.amazon.com/sagemaker/home#/jobs/{job_name}"
+        )
 
     return estimator
 

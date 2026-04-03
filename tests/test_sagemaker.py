@@ -35,13 +35,20 @@ class TestPlayerDetectionEntryParsing:
     def test_custom_args(self):
         from entry_player_detection import parse_args
 
-        with patch("sys.argv", [
-            "entry_player_detection.py",
-            "--model", "large",
-            "--epochs", "100",
-            "--batch_size", "16",
-            "--lr", "0.001",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "entry_player_detection.py",
+                "--model",
+                "large",
+                "--epochs",
+                "100",
+                "--batch_size",
+                "16",
+                "--lr",
+                "0.001",
+            ],
+        ):
             args = parse_args()
         assert args.model == "large"
         assert args.epochs == 100
@@ -57,7 +64,10 @@ class TestPlayerDetectionEntryParsing:
             "SM_CHANNEL_TRAINING": "/opt/ml/input/data/training",
             "SM_NUM_GPUS": "4",
         }
-        with patch.dict(os.environ, env), patch("sys.argv", ["entry_player_detection.py"]):
+        with (
+            patch.dict(os.environ, env),
+            patch("sys.argv", ["entry_player_detection.py"]),
+        ):
             args = parse_args()
         assert args.model_dir == "/opt/ml/model"
         assert args.data_dir == "/opt/ml/input/data/training"
@@ -84,14 +94,22 @@ class TestCourtKeypointEntryParsing:
     def test_custom_args(self):
         from entry_court_keypoint import parse_args
 
-        with patch("sys.argv", [
-            "entry_court_keypoint.py",
-            "--model", "yolo11l-pose.pt",
-            "--epochs", "200",
-            "--batch", "8",
-            "--imgsz", "1280",
-            "--pose", "15.0",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "entry_court_keypoint.py",
+                "--model",
+                "yolo11l-pose.pt",
+                "--epochs",
+                "200",
+                "--batch",
+                "8",
+                "--imgsz",
+                "1280",
+                "--pose",
+                "15.0",
+            ],
+        ):
             args = parse_args()
         assert args.model == "yolo11l-pose.pt"
         assert args.epochs == 200
@@ -104,7 +122,7 @@ class TestCourtKeypointConversion:
     """Test the COCO->YOLO conversion logic in entry_court_keypoint.py."""
 
     def test_convert_and_prepare_dataset(self):
-        from entry_court_keypoint import convert_coco_to_yolo_kpt, prepare_yolo_dataset
+        from entry_court_keypoint import prepare_yolo_dataset
         from PIL import Image as PILImage
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -122,12 +140,18 @@ class TestCourtKeypointConversion:
                 keypoints.extend([100.0, 100.0, 2])
 
             coco_data = {
-                "images": [{"id": 0, "file_name": "img_0000.jpg", "width": 640, "height": 480}],
-                "annotations": [{
-                    "id": 0, "image_id": 0, "category_id": 1,
-                    "bbox": [10, 10, 200, 150],
-                    "keypoints": keypoints,
-                }],
+                "images": [
+                    {"id": 0, "file_name": "img_0000.jpg", "width": 640, "height": 480}
+                ],
+                "annotations": [
+                    {
+                        "id": 0,
+                        "image_id": 0,
+                        "category_id": 1,
+                        "bbox": [10, 10, 200, 150],
+                        "keypoints": keypoints,
+                    }
+                ],
                 "categories": [{"id": 1, "name": "tenniscourt"}],
             }
             with open(str(train_dir / "_annotations.coco.json"), "w") as f:
@@ -171,10 +195,14 @@ class TestLaunchPlayerDetectionParsing:
     def test_default_hyperparams(self):
         from launch_player_detection import parse_args
 
-        with patch("sys.argv", [
-            "launch_player_detection.py",
-            "--role", "arn:aws:iam::123456789012:role/TestRole",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "launch_player_detection.py",
+                "--role",
+                "arn:aws:iam::123456789012:role/TestRole",
+            ],
+        ):
             args = parse_args()
         assert args.role == "arn:aws:iam::123456789012:role/TestRole"
         assert args.instance_type == "ml.g4dn.xlarge"
@@ -186,11 +214,15 @@ class TestLaunchPlayerDetectionParsing:
     def test_spot_instance_flag(self):
         from launch_player_detection import parse_args
 
-        with patch("sys.argv", [
-            "launch_player_detection.py",
-            "--role", "arn:aws:iam::123456789012:role/TestRole",
-            "--spot",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "launch_player_detection.py",
+                "--role",
+                "arn:aws:iam::123456789012:role/TestRole",
+                "--spot",
+            ],
+        ):
             args = parse_args()
         assert args.spot is True
 
@@ -208,10 +240,14 @@ class TestLaunchCourtKeypointParsing:
         sys.path.insert(0, "scripts/sagemaker")
         from launch_court_keypoint import parse_args
 
-        with patch("sys.argv", [
-            "launch_court_keypoint.py",
-            "--role", "arn:aws:iam::123456789012:role/TestRole",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "launch_court_keypoint.py",
+                "--role",
+                "arn:aws:iam::123456789012:role/TestRole",
+            ],
+        ):
             args = parse_args()
         assert args.model == "yolo11m-pose.pt"
         assert args.epochs == 100
@@ -221,10 +257,16 @@ class TestLaunchCourtKeypointParsing:
     def test_tags_parsing(self):
         from launch_court_keypoint import parse_args
 
-        with patch("sys.argv", [
-            "launch_court_keypoint.py",
-            "--role", "arn:aws:iam::123456789012:role/TestRole",
-            "--tags", "team=cv", "env=dev",
-        ]):
+        with patch(
+            "sys.argv",
+            [
+                "launch_court_keypoint.py",
+                "--role",
+                "arn:aws:iam::123456789012:role/TestRole",
+                "--tags",
+                "team=cv",
+                "env=dev",
+            ],
+        ):
             args = parse_args()
         assert args.tags == ["team=cv", "env=dev"]

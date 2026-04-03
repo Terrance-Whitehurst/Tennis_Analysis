@@ -6,13 +6,14 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import pytest
 from PIL import Image
 
 from scripts.convert_coco_to_yolo_kpt import convert_coco_to_yolo_kpt
 
 
-def _create_dummy_coco_dataset(tmpdir, num_images=3, num_keypoints=14, img_w=640, img_h=480):
+def _create_dummy_coco_dataset(
+    tmpdir, num_images=3, num_keypoints=14, img_w=640, img_h=480
+):
     """Create a minimal COCO keypoint dataset for testing."""
     images = []
     annotations = []
@@ -21,7 +22,9 @@ def _create_dummy_coco_dataset(tmpdir, num_images=3, num_keypoints=14, img_w=640
         images.append({"id": i, "file_name": fname, "width": img_w, "height": img_h})
 
         # Create a dummy image file
-        img = Image.fromarray(np.random.randint(0, 255, (img_h, img_w, 3), dtype=np.uint8))
+        img = Image.fromarray(
+            np.random.randint(0, 255, (img_h, img_w, 3), dtype=np.uint8)
+        )
         img.save(os.path.join(tmpdir, fname))
 
         # Create a COCO annotation with keypoints
@@ -37,15 +40,17 @@ def _create_dummy_coco_dataset(tmpdir, num_images=3, num_keypoints=14, img_w=640
         bbox_w = np.random.uniform(50, img_w / 2)
         bbox_h = np.random.uniform(50, img_h / 2)
 
-        annotations.append({
-            "id": i,
-            "image_id": i,
-            "category_id": 1,
-            "bbox": [bbox_x, bbox_y, bbox_w, bbox_h],
-            "keypoints": keypoints,
-            "area": bbox_w * bbox_h,
-            "iscrowd": 0,
-        })
+        annotations.append(
+            {
+                "id": i,
+                "image_id": i,
+                "category_id": 1,
+                "bbox": [bbox_x, bbox_y, bbox_w, bbox_h],
+                "keypoints": keypoints,
+                "area": bbox_w * bbox_h,
+                "iscrowd": 0,
+            }
+        )
 
     coco_data = {
         "images": images,
@@ -150,11 +155,15 @@ class TestConvertCocoToYoloKpt:
         """Annotations with wrong number of keypoints should be skipped."""
         with tempfile.TemporaryDirectory() as tmpdir:
             images = [{"id": 0, "file_name": "img.jpg", "width": 640, "height": 480}]
-            annotations = [{
-                "id": 0, "image_id": 0, "category_id": 1,
-                "bbox": [10, 10, 100, 100],
-                "keypoints": [1, 2, 2, 3, 4, 2],  # Only 2 keypoints, not 14
-            }]
+            annotations = [
+                {
+                    "id": 0,
+                    "image_id": 0,
+                    "category_id": 1,
+                    "bbox": [10, 10, 100, 100],
+                    "keypoints": [1, 2, 2, 3, 4, 2],  # Only 2 keypoints, not 14
+                }
+            ]
             coco_data = {
                 "images": images,
                 "annotations": annotations,
@@ -193,11 +202,15 @@ class TestConvertCocoToYoloKpt:
             for _ in range(13):
                 keypoints.extend([100, 200, 2])  # visible
 
-            annotations = [{
-                "id": 0, "image_id": 0, "category_id": 1,
-                "bbox": [10, 10, 100, 100],
-                "keypoints": keypoints,
-            }]
+            annotations = [
+                {
+                    "id": 0,
+                    "image_id": 0,
+                    "category_id": 1,
+                    "bbox": [10, 10, 100, 100],
+                    "keypoints": keypoints,
+                }
+            ]
             coco_data = {
                 "images": images,
                 "annotations": annotations,

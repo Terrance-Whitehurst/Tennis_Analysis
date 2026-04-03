@@ -51,5 +51,6 @@ runs/
 *.pickle
 *.joblib
 
+RECONSTRUCTURING.md 
 # uv lock (optional - remove if you want reproducible builds tracked)
 # uv.lock

@@ -9,7 +9,6 @@ import torch
 
 from src.utils.general import (
     get_model,
-    show_model_size,
     list_dirs,
     to_img,
     to_img_format,
