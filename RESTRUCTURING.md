@@ -13,7 +13,7 @@ The original layout had all code nested inside `Models/TrackNetV3/` as a monolit
 - **Onboard new contributors** (unclear where to find or add things)
 - **Scale the project** (adding a second model or dataset requires rethinking the layout)
 
-The new structure follows the [Cookiecutter Data Science](https://drivendata.github.io/cookiecutter-data-science/) convention, which is the de facto standard for ML repositories in production.
+The new structure follows the [Cookiecutter Data Science](https://cookiecutter-data-science.drivendata.org/) (CCDS v2) convention, which is the de facto standard for ML repositories in production.
 
 ---
 
@@ -43,67 +43,60 @@ Tennis_Analysis/
     └── corrected_test_label/
 ```
 
-### New Structure
+### New Structure (CCDS v2)
 
 ```
 Tennis_Analysis/
-├── configs/                    # Experiment configs and label corrections
-│   ├── drop_frame.json
-│   └── corrected_test_label/
-│
-├── data/                       # All data lives here (not committed to git)
-│   ├── raw/                    # Original datasets + test videos
-│   │   ├── Player_Detection/
-│   │   ├── Tennis_Court_Keypoint/
-│   │   ├── Artifacts/
-│   │   └── test_video/
-│   ├── interim/                # Intermediate processing outputs
-│   └── processed/              # Final processed data ready for training
-│
-├── experiments/                # Experiment logs, TensorBoard runs, results
-│
-├── models/                     # Trained model checkpoints
-│   ├── TrackNet_best.pt
-│   └── InpaintNet_best.pt
-│
-├── notebooks/                  # Jupyter notebooks for exploration
-│
-├── src/                        # Main Python package (installable)
-│   ├── __init__.py
-│   ├── datasets/
-│   │   ├── __init__.py
-│   │   └── tracknet_dataset.py
-│   ├── models/
-│   │   ├── __init__.py
-│   │   └── tracknet.py
-│   ├── training/
-│   │   ├── __init__.py
-│   │   └── train_tracknet.py
-│   ├── evaluation/
-│   │   ├── __init__.py
-│   │   └── evaluate.py
-│   ├── inference/
-│   │   ├── __init__.py
-│   │   ├── ball_tracking.py
-│   │   └── predict.py
-│   └── utils/
-│       ├── __init__.py
-│       ├── general.py
-│       ├── metric.py
-│       └── visualize.py
-│
-├── scripts/                    # Runnable CLI scripts (not part of the package)
-│   ├── preprocess.py
-│   ├── correct_label.py
-│   ├── error_analysis.py
-│   └── generate_mask_data.py
-│
-├── tests/                      # Unit tests
-│
+├── Makefile                    # Convenience commands (make train, make test, etc.)
+├── README.md                   # Project documentation
 ├── pyproject.toml              # Package definition + dependencies
 ├── requirements.txt            # Flat dependency list
 ├── .gitignore
-└── README.md
+│
+├── configs/                    # Experiment configs and label corrections
+│   ├── drop_frame.json
+│   ├── court_keypoint.yaml
+│   └── corrected_test_label/
+│
+├── data/                       # All data lives here (not committed to git)
+│   ├── raw/                    # Original immutable datasets + test videos
+│   ├── interim/                # Intermediate processing outputs
+│   ├── processed/              # Final processed data ready for training
+│   └── external/               # Third-party data sources
+│
+├── docs/                       # Project documentation (mkdocs or similar)
+├── references/                 # Data dictionaries, manuals, explanatory materials
+├── reports/                    # Generated analysis outputs
+│   └── figures/                # Generated graphics and annotated frames
+│
+├── experiments/                # Experiment logs, TensorBoard runs, results
+│
+├── models/                     # Trained model checkpoints (not committed)
+│   ├── player_detection/       # RF-DETR checkpoints from SageMaker
+│   └── court_keypoint/         # YOLO-Pose weights from SageMaker
+│
+├── notebooks/                  # Jupyter notebooks for exploration
+│                               # Naming: <number>-<initials>-<description>.ipynb
+│
+├── src/                        # Main Python package (installable)
+│   ├── __init__.py
+│   ├── datasets/               # Data loading and preprocessing
+│   ├── models/                 # Model architecture definitions
+│   ├── training/               # Training loops and schedulers
+│   ├── evaluation/             # Metrics and evaluation pipelines
+│   ├── inference/              # Inference and prediction pipelines
+│   └── utils/                  # Shared helpers, constants, visualization
+│
+├── scripts/                    # Standalone CLI scripts (not part of the package)
+│   ├── preprocess.py
+│   ├── correct_label.py
+│   ├── error_analysis.py
+│   ├── generate_mask_data.py
+│   ├── convert_coco_to_yolo_kpt.py
+│   ├── test_models_on_video.py
+│   └── sagemaker/              # AWS SageMaker training launchers
+│
+└── tests/                      # Unit and integration tests
 ```
 
 ---
@@ -316,7 +309,7 @@ python scripts/generate_mask_data.py --tracknet_file models/TrackNet_best.pt
 
 ## References
 
-- [Cookiecutter Data Science](https://drivendata.github.io/cookiecutter-data-science/) — The project template this layout is based on
+- [Cookiecutter Data Science v2](https://cookiecutter-data-science.drivendata.org/) — The project template this layout is based on
 - [PEP 328 — Imports: Multi-Line and Absolute/Relative](https://peps.python.org/pep-0328/) — Why absolute imports are preferred
 - [Setuptools Package Discovery](https://setuptools.pypa.io/en/latest/userguide/package_discovery.html) — How `pyproject.toml` finds the `src` package
 - [DVC (Data Version Control)](https://dvc.org/) — Recommended for versioning large datasets

@@ -6,6 +6,10 @@ data/processed/
 
 # Model checkpoints
 models/*.pt
+models/**/*.pt
+models/**/*.pth
+models/**/*.ckpt
+models/**/*.tar.gz
 
 # Python
 __pycache__/
@@ -50,6 +54,12 @@ runs/
 *.pkl
 *.pickle
 *.joblib
+rf-detr-base.pth
+
+# Generated reports/figures (reproducible from models + data)
+reports/figures/*.jpg
+reports/figures/*.png
+reports/figures/*.mp4
 
 RECONSTRUCTURING.md 
 # uv lock (optional - remove if you want reproducible builds tracked)
