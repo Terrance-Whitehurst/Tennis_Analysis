@@ -11,8 +11,15 @@ Tennis ball tracking, player detection, court keypoint detection, and scoreboard
 
 ## Project Structure
 
+This project follows the [Cookiecutter Data Science](https://cookiecutter-data-science.drivendata.org/) (CCDS v2) convention.
+
 ```
 Tennis_Analysis/
+├── Makefile                  # Convenience commands (make train, make test, etc.)
+├── README.md                 # This file
+├── pyproject.toml            # Package metadata and dependencies
+├── requirements.txt          # Flat dependency list
+│
 ├── configs/                  # Experiment configs and label corrections
 │   ├── drop_frame.json
 │   ├── court_keypoint.yaml   # YOLO dataset config for court keypoints
@@ -42,23 +49,24 @@ Tennis_Analysis/
 ├── src/                      # Main Python package (installable via pip install -e .)
 │   ├── datasets/             # Data loading and preprocessing
 │   │   └── tracknet_dataset.py
-│   ├── models/               # Model architectures
+│   ├── models/               # Model architecture definitions
 │   │   └── tracknet.py       # TrackNet + InpaintNet
-│   ├── training/             # Training loops
+│   ├── training/             # Training loops and schedulers
 │   │   ├── train_tracknet.py
 │   │   ├── train_player_detection.py       # RF-DETR
 │   │   ├── train_court_keypoint.py         # YOLO-Pose
 │   │   └── train_scoreboard_detection.py   # RF-DETR
 │   ├── evaluation/           # Metrics and evaluation pipelines
 │   │   └── evaluate.py
-│   ├── inference/            # Inference pipelines
-│   │   ├── ball_tracking.py  # End-to-end video tracking
+│   ├── inference/            # Inference and prediction pipelines
+│   │   ├── ball_tracking.py  # End-to-end video ball tracking
 │   │   └── predict.py        # Batch prediction
-│   └── utils/                # Shared utilities
-│       ├── general.py        # Helper functions and constants
-│       ├── metric.py         # Loss functions and metrics
-│       └── visualize.py      # Visualization and TensorBoard logging
-├── scripts/                  # CLI scripts
+│   └── utils/                # Shared helpers, constants, visualization
+│       ├── general.py
+│       ├── metric.py
+│       └── visualize.py
+│
+├── scripts/                  # Standalone CLI scripts (not part of the package)
 │   ├── preprocess.py         # Data preprocessing
 │   ├── correct_label.py      # Interactive label correction UI
 │   ├── error_analysis.py     # Error analysis dashboard
