@@ -2,11 +2,11 @@
 
 ![Tennis Analysis Demo](reports/figures/demo.gif)
 
-Tennis ball tracking, player detection, court keypoint detection, and scoreboard detection using deep learning.
+End-to-end tennis video analysis combining four deep learning models — ball tracking, player detection, court keypoint detection, and scoreboard detection — with a unified visualization pipeline.
 
-- **Ball Tracking**: TrackNet (2D U-Net) for heatmap prediction + InpaintNet (1D U-Net) for trajectory gap filling
-- **Player Detection**: RF-DETR (Detection Transformer) for real-time player bounding boxes
-- **Court Detection**: YOLO-Pose for 14-keypoint court geometry estimation
+- **Ball Tracking**: TrackNetV3 (2D U-Net) for heatmap-based ball detection + InpaintNet (1D U-Net) for trajectory gap filling, with fading trajectory trail visualization
+- **Player Detection**: RF-DETR (Detection Transformer) for real-time player bounding boxes with ByteTrack temporal smoothing
+- **Court Detection**: YOLO-Pose for 14-keypoint court geometry estimation with skeleton wireframe overlay
 - **Scoreboard Detection**: RF-DETR for scoreboard bounding box detection
 
 ## Project Structure
@@ -37,6 +37,8 @@ Tennis_Analysis/
 │   └── figures/              # Generated graphics and annotated frames
 │
 ├── models/                   # Trained model checkpoints (not committed)
+│   ├── TrackNet_best.pt      # TrackNetV3 pretrained weights
+│   ├── InpaintNet_best.pt    # InpaintNet pretrained weights
 │   ├── player_detection/     # RF-DETR checkpoints from SageMaker
 │   ├── court_keypoint/       # YOLO-Pose weights from SageMaker
 │   └── scoreboard_detection/ # RF-DETR checkpoints from SageMaker
@@ -95,6 +97,12 @@ uv pip install -r requirements.txt
 
 # Pull trained models from S3 (requires AWS credentials)
 make pull-models
+
+# Download pretrained TrackNetV3 weights (from official repo via Google Drive)
+pip install gdown
+gdown "https://drive.google.com/uc?id=1CfzE87a0f6LhBp0kniSl1-89zaLCZ8cA" -O models/TrackNetV3_ckpts.zip
+unzip models/TrackNetV3_ckpts.zip -d models/ && mv models/ckpts/* models/ && rmdir models/ckpts
+rm models/TrackNetV3_ckpts.zip
 ```
 
 ## Usage
@@ -104,17 +112,25 @@ Use `make help` to see all available commands.
 ### Test All Models on Video
 
 ```bash
-# Run player detection + court keypoint + scoreboard detection on test video
+# Run all models (ball tracking + player detection + court keypoint + scoreboard detection)
 make test-models
 
 # Or directly:
 python scripts/test_models_on_video.py --video data/raw/test_video/Test_Clip_1.mp4
+
+# Selectively disable models:
+python scripts/test_models_on_video.py --no-ball         # skip ball tracking
 python scripts/test_models_on_video.py --no-court        # skip court keypoint model
 python scripts/test_models_on_video.py --no-player       # skip player detection model
 python scripts/test_models_on_video.py --no-scoreboard   # skip scoreboard detection model
+
+# Custom model paths:
+python scripts/test_models_on_video.py \
+    --tracknet-model models/TrackNet_best.pt \
+    --inpaintnet-model models/InpaintNet_best.pt
 ```
 
-Output goes to `reports/figures/` (annotated video + sample frames).
+Output goes to `reports/figures/` (annotated video + sample frames). Ball tracking runs as a pre-processing step (TrackNetV3 processes 8-frame sequences with temporal ensemble), then overlays a fading trajectory trail on each frame alongside the other model annotations.
 
 ### Inference (Ball Tracking)
 
@@ -228,15 +244,19 @@ python scripts/error_analysis.py --split test
 
 ## Models
 
-### Ball Tracking — TrackNet + InpaintNet
+### Ball Tracking — TrackNetV3 + InpaintNet
 
-- **TrackNet**: 2D U-Net encoder-decoder
-  - Input: (N, 27, 288, 512) — 8 RGB frames + 1 background, channel-concatenated
+Pretrained weights from the [official TrackNetV3 repo](https://github.com/qaz812345/TrackNetV3), originally trained on badminton shuttlecock data but generalizes well to tennis balls (small, fast-moving objects on a court).
+
+- **TrackNetV3**: 2D U-Net encoder-decoder
+  - Input: (N, 27, 288, 512) — 8 RGB frames + 1 median background, channel-concatenated
   - Output: (N, 8, 288, 512) — per-frame heatmaps via sigmoid
+  - Temporal ensemble with triangular weighting for overlapping sequence predictions
 
 - **InpaintNet**: 1D U-Net operating on coordinate sequences
   - Input: (N, L, 3) — normalized (x, y) + inpaint mask
   - Output: (N, L, 2) — refined (x, y) coordinates
+  - Fills in trajectory gaps where the ball was occluded or missed by TrackNet
 
 ### Player Detection — RF-DETR
 
