@@ -4,12 +4,10 @@ data/interim/
 data/processed/
 !data/**/.gitkeep
 
-# Model checkpoints
-models/*.pt
-models/**/*.pt
-models/**/*.pth
-models/**/*.ckpt
-models/**/*.tar.gz
+# Model checkpoints and artifacts
+models/
+*.pth
+*.ckpt
 
 # Python
 __pycache__/
