@@ -1,11 +1,13 @@
 """
-Test trained player detection, court keypoint, and scoreboard detection models on test video.
+Test trained player detection, court keypoint, scoreboard detection, and
+ball tracking models on test video.
 
-Runs RF-DETR (player detection + scoreboard detection) and YOLO-Pose
-(court keypoint detection) on each frame of the test video, saves an
-annotated output video with supervision-powered visualizations: smooth
-player trails, clean court wireframe, scoreboard bounding boxes, and
-polished annotations.
+Runs RF-DETR (player detection + scoreboard detection), YOLO-Pose (court
+keypoint detection), and TrackNetV3 (ball tracking + InpaintNet gap filling)
+on each frame of the test video, saves an annotated output video with
+supervision-powered visualizations: smooth player trails, clean court
+wireframe, scoreboard bounding boxes, ball trajectory trail, and polished
+annotations.
 
 Usage:
     python scripts/test_models_on_video.py
@@ -13,6 +15,7 @@ Usage:
     python scripts/test_models_on_video.py --no-court       # skip court keypoint model
     python scripts/test_models_on_video.py --no-player      # skip player detection model
     python scripts/test_models_on_video.py --no-scoreboard  # skip scoreboard detection model
+    python scripts/test_models_on_video.py --no-ball        # skip ball tracking model
 """
 
 import argparse
@@ -20,6 +23,8 @@ import os
 import sys
 import time
 from pathlib import Path
+
+from collections import deque
 
 import cv2
 import numpy as np
@@ -34,6 +39,8 @@ DEFAULT_VIDEO = "data/raw/test_video/Test_Clip_1.mp4"
 DEFAULT_PLAYER_MODEL = "models/player_detection/checkpoint_best_total.pth"
 DEFAULT_COURT_MODEL = "models/court_keypoint/best.pt"
 DEFAULT_SCOREBOARD_MODEL = "models/scoreboard_detection/checkpoint_best_total.pth"
+DEFAULT_TRACKNET_MODEL = "models/TrackNet_best.pt"
+DEFAULT_INPAINTNET_MODEL = "models/InpaintNet_best.pt"
 DEFAULT_OUTPUT_DIR = "reports/figures"
 
 # Court keypoint skeleton connections — 1-indexed to match supervision's EdgeAnnotator
@@ -69,6 +76,38 @@ COURT_LINE_COLOR = sv.Color.from_hex("#FF4444")  # red
 COURT_VERTEX_COLOR = sv.Color.from_hex("#FF6666")
 PLAYER_COLORS = sv.ColorPalette.from_hex(["#00FF00", "#4488FF"])  # green, blue
 SCOREBOARD_COLOR = sv.Color.from_hex("#FFD700")  # gold
+BALL_COLOR = (0, 255, 255)  # BGR yellow for ball dot
+BALL_TRAIL_LEN = 12  # frames of trajectory trail
+
+
+def draw_ball_trail(frame, trajectory):
+    """Draw ball position with a fading trajectory trail.
+
+    Renders recent ball positions as circles that fade from bright yellow
+    (current) to dim, with decreasing radius for older positions.
+
+    Args:
+        frame: BGR frame to annotate (modified in-place).
+        trajectory: Deque of (x, y) tuples or None for missed frames.
+
+    Returns:
+        Annotated frame.
+    """
+    n = len(trajectory)
+    for i, pos in enumerate(trajectory):
+        if pos is None:
+            continue
+        # i=0 is newest, i=n-1 is oldest
+        alpha = 1.0 - (i / n)
+        radius = max(2, int(7 * alpha))
+        color_intensity = int(255 * alpha)
+        # Yellow (BGR) with fade
+        color = (0, color_intensity, color_intensity)
+        cv2.circle(frame, pos, radius, color, -1, lineType=cv2.LINE_AA)
+        # Bright outline on the current position
+        if i == 0:
+            cv2.circle(frame, pos, radius + 2, (0, 255, 255), 1, lineType=cv2.LINE_AA)
+    return frame
 
 
 def load_player_detection_model(checkpoint_path, device):
@@ -167,6 +206,8 @@ def main():
     parser.add_argument("--player-model", default=DEFAULT_PLAYER_MODEL)
     parser.add_argument("--court-model", default=DEFAULT_COURT_MODEL)
     parser.add_argument("--scoreboard-model", default=DEFAULT_SCOREBOARD_MODEL)
+    parser.add_argument("--tracknet-model", default=DEFAULT_TRACKNET_MODEL)
+    parser.add_argument("--inpaintnet-model", default=DEFAULT_INPAINTNET_MODEL)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--no-player", action="store_true", help="Skip player detection"
@@ -177,6 +218,7 @@ def main():
     parser.add_argument(
         "--no-scoreboard", action="store_true", help="Skip scoreboard detection"
     )
+    parser.add_argument("--no-ball", action="store_true", help="Skip ball tracking")
     parser.add_argument(
         "--save-frames", action="store_true", help="Save individual annotated frames"
     )
@@ -225,6 +267,30 @@ def main():
             args.scoreboard_model, device
         )
         print("  Scoreboard detection model loaded.")
+
+    # Pre-compute ball tracking predictions (TrackNet processes sequences, not single frames)
+    ball_pred_dict = None
+    if not args.no_ball:
+        if not Path(args.tracknet_model).exists():
+            print(
+                f"  WARNING: TrackNet model not found: {args.tracknet_model}, skipping ball tracking"
+            )
+        else:
+            from src.inference.ball_tracking import track_balls
+
+            inpaintnet_path = (
+                args.inpaintnet_model if Path(args.inpaintnet_model).exists() else None
+            )
+            if inpaintnet_path is None:
+                print("  NOTE: InpaintNet model not found, running TrackNet only")
+            print(f"Running ball tracking on {args.video}...")
+            ball_pred_dict = track_balls(
+                args.video, args.tracknet_model, inpaintnet_path
+            )
+            print(
+                f"  Ball tracking complete: {sum(ball_pred_dict['Visibility'])}"
+                f"/{len(ball_pred_dict['Frame'])} frames detected"
+            )
 
     # Open video
     cap = cv2.VideoCapture(args.video)
@@ -310,6 +376,8 @@ def main():
     total_player_dets = 0
     total_court_dets = 0
     total_scoreboard_dets = 0
+    total_ball_dets = 0
+    ball_trajectory = deque(maxlen=BALL_TRAIL_LEN)
     start_time = time.time()
 
     while True:
@@ -418,6 +486,20 @@ def main():
                 print(f"  Player detection error (frame {frame_idx}): {e}")
                 raise
 
+        # Ball tracking overlay
+        if ball_pred_dict is not None:
+            if (
+                frame_idx < len(ball_pred_dict["Frame"])
+                and ball_pred_dict["Visibility"][frame_idx]
+            ):
+                bx = ball_pred_dict["X"][frame_idx]
+                by = ball_pred_dict["Y"][frame_idx]
+                ball_trajectory.appendleft((bx, by))
+                total_ball_dets += 1
+            else:
+                ball_trajectory.appendleft(None)
+            annotated = draw_ball_trail(annotated, ball_trajectory)
+
         # Write frame
         out.write(annotated)
 
@@ -447,6 +529,11 @@ def main():
         print(
             f"  Total scoreboard detections: {total_scoreboard_dets}"
             f" ({total_scoreboard_dets / max(frame_idx, 1):.1f} avg/frame)"
+        )
+    if ball_pred_dict is not None:
+        print(
+            f"  Ball detections: {total_ball_dets}/{frame_idx} frames"
+            f" ({total_ball_dets / max(frame_idx, 1) * 100:.1f}%)"
         )
     print(f"\n  Output video: {output_path}")
 
