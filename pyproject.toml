@@ -21,6 +21,8 @@ dependencies = [
     "pyyaml",
     "sagemaker>=2.200,<3",
     "boto3",
+    "scikit-image>=0.20.0",
+    "supervision>=0.20.0",
 ]
 
 [build-system]
