@@ -15,3 +15,5 @@ ultralytics
 pyyaml
 sagemaker
 boto3
+scikit-image>=0.20.0
+supervision>=0.20.0

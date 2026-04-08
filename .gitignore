@@ -60,6 +60,11 @@ reports/figures/*.png
 reports/figures/*.mp4
 !reports/figures/demo.gif
 
-RECONSTRUCTURING.md 
+RECONSTRUCTURING.md
+
+# Pi (symlinked, not part of this repo)
+Pi/
+.pi/
+
 # uv lock (optional - remove if you want reproducible builds tracked)
 # uv.lock
