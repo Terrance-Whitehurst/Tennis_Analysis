@@ -1,4 +1,4 @@
-.PHONY: install data train-tracknet train-player-detection train-court-keypoint train-scoreboard-detection evaluate inference test clean help
+.PHONY: install data train-tracknet train-player-detection train-court-keypoint train-scoreboard-detection train-ball-detection evaluate inference test clean help
 
 #################################################################################
 # GLOBALS                                                                       #
@@ -45,6 +45,10 @@ train-court-keypoint:
 ## Train RF-DETR scoreboard detection model
 train-scoreboard-detection:
 	$(PYTHON_INTERPRETER) -m src.training.train_scoreboard_detection
+
+## Train RF-DETR tennis ball detection model
+train-ball-detection:
+	$(PYTHON_INTERPRETER) -m src.training.train_ball_detection
 
 ## Evaluate TrackNet on test split
 evaluate:
