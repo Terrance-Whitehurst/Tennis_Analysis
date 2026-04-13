@@ -1,13 +1,12 @@
 """
 Test trained player detection, court keypoint, scoreboard detection, and
-ball tracking models on test video.
+ball detection models on test video.
 
-Runs RF-DETR (player detection + scoreboard detection), YOLO-Pose (court
-keypoint detection), and TrackNetV3 (ball tracking + InpaintNet gap filling)
-on each frame of the test video, saves an annotated output video with
-supervision-powered visualizations: smooth player trails, clean court
-wireframe, scoreboard bounding boxes, ball trajectory trail, and polished
-annotations.
+Runs RF-DETR (player detection + scoreboard detection + ball detection),
+YOLO-Pose (court keypoint detection) on each frame of the test video,
+saves an annotated output video with supervision-powered visualizations:
+smooth player trails, clean court wireframe, scoreboard bounding boxes,
+ball detection with trajectory trail, and polished annotations.
 
 Usage:
     python scripts/test_models_on_video.py
@@ -15,7 +14,7 @@ Usage:
     python scripts/test_models_on_video.py --no-court       # skip court keypoint model
     python scripts/test_models_on_video.py --no-player      # skip player detection model
     python scripts/test_models_on_video.py --no-scoreboard  # skip scoreboard detection model
-    python scripts/test_models_on_video.py --no-ball        # skip ball tracking model
+    python scripts/test_models_on_video.py --no-ball        # skip ball detection model
 """
 
 import argparse
@@ -23,8 +22,6 @@ import os
 import sys
 import time
 from pathlib import Path
-
-from collections import deque
 
 import cv2
 import numpy as np
@@ -39,8 +36,7 @@ DEFAULT_VIDEO = "data/raw/test_video/Test_Clip_1.mp4"
 DEFAULT_PLAYER_MODEL = "models/player_detection/checkpoint_best_total.pth"
 DEFAULT_COURT_MODEL = "models/court_keypoint/best.pt"
 DEFAULT_SCOREBOARD_MODEL = "models/scoreboard_detection/checkpoint_best_total.pth"
-DEFAULT_TRACKNET_MODEL = "models/TrackNet_best.pt"
-DEFAULT_INPAINTNET_MODEL = "models/InpaintNet_best.pt"
+DEFAULT_BALL_MODEL = "models/ball_detection/checkpoint_best_total.pth"
 DEFAULT_OUTPUT_DIR = "reports/figures"
 
 # Court keypoint skeleton connections — 1-indexed to match supervision's EdgeAnnotator
@@ -70,44 +66,13 @@ SKELETON = [
 
 CLASS_NAMES = ["players-balls-court", "player-back", "player-front"]
 SCOREBOARD_CLASS_NAMES = ["scoreboards"]
+BALL_CLASS_NAMES = ["tennis-ball", "tennis_ball"]
 
 # Colors
 COURT_LINE_COLOR = sv.Color.from_hex("#FF4444")  # red
 COURT_VERTEX_COLOR = sv.Color.from_hex("#FF6666")
 PLAYER_COLORS = sv.ColorPalette.from_hex(["#00FF00", "#4488FF"])  # green, blue
 SCOREBOARD_COLOR = sv.Color.from_hex("#FFD700")  # gold
-BALL_COLOR = (0, 255, 255)  # BGR yellow for ball dot
-BALL_TRAIL_LEN = 12  # frames of trajectory trail
-
-
-def draw_ball_trail(frame, trajectory):
-    """Draw ball position with a fading trajectory trail.
-
-    Renders recent ball positions as circles that fade from bright yellow
-    (current) to dim, with decreasing radius for older positions.
-
-    Args:
-        frame: BGR frame to annotate (modified in-place).
-        trajectory: Deque of (x, y) tuples or None for missed frames.
-
-    Returns:
-        Annotated frame.
-    """
-    n = len(trajectory)
-    for i, pos in enumerate(trajectory):
-        if pos is None:
-            continue
-        # i=0 is newest, i=n-1 is oldest
-        alpha = 1.0 - (i / n)
-        radius = max(2, int(7 * alpha))
-        color_intensity = int(255 * alpha)
-        # Yellow (BGR) with fade
-        color = (0, color_intensity, color_intensity)
-        cv2.circle(frame, pos, radius, color, -1, lineType=cv2.LINE_AA)
-        # Bright outline on the current position
-        if i == 0:
-            cv2.circle(frame, pos, radius + 2, (0, 255, 255), 1, lineType=cv2.LINE_AA)
-    return frame
 
 
 def load_player_detection_model(checkpoint_path, device):
@@ -187,6 +152,39 @@ def run_scoreboard_detection(model, frame):
     return detections
 
 
+def load_ball_detection_model(checkpoint_path, device):
+    """Load RF-DETR model from SageMaker training checkpoint for ball detection."""
+    from rfdetr import RFDETRBase
+
+    model = RFDETRBase()
+    # Reinitialize detection head for 3 outputs (2 classes + background index)
+    model.model.reinitialize_detection_head(num_classes=3)
+    model.model.class_names = BALL_CLASS_NAMES
+
+    ckpt = torch.load(checkpoint_path, map_location="cpu")
+    state_dict = ckpt["state_dict"]
+    # Strip the 'model.' prefix added by PyTorch Lightning
+    cleaned = {k.replace("model.", "", 1): v for k, v in state_dict.items()}
+    model.model.model.load_state_dict(cleaned)
+    model.model.model.to(device)
+    model.model.device = device
+    model.model.model.eval()
+    return model
+
+
+def run_ball_detection(model, frame):
+    """Run RF-DETR ball detection on a single frame.
+
+    Returns sv.Detections with bounding boxes, confidence, and class IDs.
+    """
+    detections = model.predict(frame, threshold=0.3)
+    if detections is None or len(detections) == 0:
+        return sv.Detections.empty()
+    detections.data.pop("source_image", None)
+    detections.data.pop("source_shape", None)
+    return detections
+
+
 def run_court_keypoint(model, frame):
     """Run YOLO-Pose court keypoint detection on a single frame.
 
@@ -206,8 +204,7 @@ def main():
     parser.add_argument("--player-model", default=DEFAULT_PLAYER_MODEL)
     parser.add_argument("--court-model", default=DEFAULT_COURT_MODEL)
     parser.add_argument("--scoreboard-model", default=DEFAULT_SCOREBOARD_MODEL)
-    parser.add_argument("--tracknet-model", default=DEFAULT_TRACKNET_MODEL)
-    parser.add_argument("--inpaintnet-model", default=DEFAULT_INPAINTNET_MODEL)
+    parser.add_argument("--ball-model", default=DEFAULT_BALL_MODEL)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--no-player", action="store_true", help="Skip player detection"
@@ -218,7 +215,7 @@ def main():
     parser.add_argument(
         "--no-scoreboard", action="store_true", help="Skip scoreboard detection"
     )
-    parser.add_argument("--no-ball", action="store_true", help="Skip ball tracking")
+    parser.add_argument("--no-ball", action="store_true", help="Skip ball detection")
     parser.add_argument(
         "--save-frames", action="store_true", help="Save individual annotated frames"
     )
@@ -268,29 +265,15 @@ def main():
         )
         print("  Scoreboard detection model loaded.")
 
-    # Pre-compute ball tracking predictions (TrackNet processes sequences, not single frames)
-    ball_pred_dict = None
+    # Load ball detection model (RF-DETR, runs per-frame like other detectors)
+    ball_model = None
     if not args.no_ball:
-        if not Path(args.tracknet_model).exists():
-            print(
-                f"  WARNING: TrackNet model not found: {args.tracknet_model}, skipping ball tracking"
-            )
-        else:
-            from src.inference.ball_tracking import track_balls
-
-            inpaintnet_path = (
-                args.inpaintnet_model if Path(args.inpaintnet_model).exists() else None
-            )
-            if inpaintnet_path is None:
-                print("  NOTE: InpaintNet model not found, running TrackNet only")
-            print(f"Running ball tracking on {args.video}...")
-            ball_pred_dict = track_balls(
-                args.video, args.tracknet_model, inpaintnet_path
-            )
-            print(
-                f"  Ball tracking complete: {sum(ball_pred_dict['Visibility'])}"
-                f"/{len(ball_pred_dict['Frame'])} frames detected"
-            )
+        print(f"Loading ball detection model: {args.ball_model}")
+        assert Path(args.ball_model).exists(), (
+            f"Ball model not found: {args.ball_model}"
+        )
+        ball_model = load_ball_detection_model(args.ball_model, device)
+        print("  Ball detection model loaded.")
 
     # Open video
     cap = cv2.VideoCapture(args.video)
@@ -338,15 +321,6 @@ def main():
         end_angle=235,
         color_lookup=sv.ColorLookup.TRACK,
     )
-    trace_annotator = sv.TraceAnnotator(
-        color=PLAYER_COLORS,
-        position=sv.Position.BOTTOM_CENTER,
-        trace_length=int(fps * 2),  # 2 seconds of trail
-        thickness=2,
-        smooth=True,
-        color_lookup=sv.ColorLookup.TRACK,
-    )
-
     # Scoreboard detection annotators
     scoreboard_box_annotator = sv.BoxCornerAnnotator(
         color=sv.ColorPalette.from_hex(["#FFD700"]),
@@ -359,6 +333,24 @@ def main():
         text_scale=0.5,
         text_padding=4,
     )
+
+    # Ball detection annotators
+    ball_triangle_annotator = sv.TriangleAnnotator(
+        color=sv.Color.from_hex("#00FFFF"),
+        base=20,
+        height=16,
+        position=sv.Position.TOP_CENTER,
+        outline_thickness=2,
+        outline_color=sv.Color.BLACK,
+    )
+    ball_trace_annotator = sv.TraceAnnotator(
+        color=sv.ColorPalette.from_hex(["#00FFFF"]),
+        position=sv.Position.CENTER,
+        trace_length=int(fps * 1.5),
+        thickness=2,
+        color_lookup=sv.ColorLookup.TRACK,
+    )
+    ball_smoother = sv.DetectionsSmoother(length=5)
 
     # Tracker and smoother for temporal consistency
     tracker = sv.ByteTrack(
@@ -377,7 +369,6 @@ def main():
     total_court_dets = 0
     total_scoreboard_dets = 0
     total_ball_dets = 0
-    ball_trajectory = deque(maxlen=BALL_TRAIL_LEN)
     start_time = time.time()
 
     while True:
@@ -454,7 +445,6 @@ def main():
                         labels.append(f"{name} {conf:.2f}")
 
                     # Annotate: trace + ellipse (narrowed) + semi-transparent triangle
-                    annotated = trace_annotator.annotate(annotated, detections)
                     # Shrink boxes horizontally for a tighter ellipse
                     narrow_xyxy = detections.xyxy.copy()
                     cx = (narrow_xyxy[:, 0] + narrow_xyxy[:, 2]) / 2
@@ -486,19 +476,32 @@ def main():
                 print(f"  Player detection error (frame {frame_idx}): {e}")
                 raise
 
-        # Ball tracking overlay
-        if ball_pred_dict is not None:
-            if (
-                frame_idx < len(ball_pred_dict["Frame"])
-                and ball_pred_dict["Visibility"][frame_idx]
-            ):
-                bx = ball_pred_dict["X"][frame_idx]
-                by = ball_pred_dict["Y"][frame_idx]
-                ball_trajectory.appendleft((bx, by))
-                total_ball_dets += 1
-            else:
-                ball_trajectory.appendleft(None)
-            annotated = draw_ball_trail(annotated, ball_trajectory)
+        # Ball detection with RF-DETR
+        if ball_model is not None:
+            try:
+                ball_detections = run_ball_detection(ball_model, frame)
+                if len(ball_detections) > 0:
+                    # Take highest confidence detection as "the ball"
+                    best_idx = int(np.argmax(ball_detections.confidence))
+                    best_det = ball_detections[best_idx : best_idx + 1]
+                    # Assign a stable tracker_id so TraceAnnotator can draw a trail
+                    best_det.tracker_id = np.array([0])
+
+                    # Smooth and annotate with supervision
+                    best_det = ball_smoother.update_with_detections(best_det)
+                    annotated = ball_trace_annotator.annotate(annotated, best_det)
+                    annotated = ball_triangle_annotator.annotate(annotated, best_det)
+                    total_ball_dets += 1
+
+                    if frame_idx % 10 == 0:
+                        cx = int((best_det.xyxy[0][0] + best_det.xyxy[0][2]) / 2)
+                        cy = int((best_det.xyxy[0][1] + best_det.xyxy[0][3]) / 2)
+                        print(
+                            f"  Frame {frame_idx:4d} | Ball: ({cx}, {cy}) conf={best_det.confidence[0]:.2f}"
+                        )
+            except Exception as e:
+                if frame_idx == 0:
+                    print(f"  Ball detection error: {e}")
 
         # Write frame
         out.write(annotated)
@@ -530,7 +533,7 @@ def main():
             f"  Total scoreboard detections: {total_scoreboard_dets}"
             f" ({total_scoreboard_dets / max(frame_idx, 1):.1f} avg/frame)"
         )
-    if ball_pred_dict is not None:
+    if ball_model is not None:
         print(
             f"  Ball detections: {total_ball_dets}/{frame_idx} frames"
             f" ({total_ball_dets / max(frame_idx, 1) * 100:.1f}%)"
