@@ -1,5 +1,2 @@
-from src.datasets.tracknet_dataset import (
-    Shuttlecock_Trajectory_Dataset as Shuttlecock_Trajectory_Dataset,
-    Video_IterableDataset as Video_IterableDataset,
-    data_dir as data_dir,
-)
+# Datasets package — TrackNet dataset removed; RF-DETR ball detection uses
+# COCO-format datasets natively (see src/training/train_ball_detection.py).

@@ -4,7 +4,7 @@
 
 End-to-end tennis video analysis combining four deep learning models — ball tracking, player detection, court keypoint detection, and scoreboard detection — with a unified visualization pipeline.
 
-- **Ball Tracking**: TrackNetV3 (2D U-Net) for heatmap-based ball detection + InpaintNet (1D U-Net) for trajectory gap filling, with fading trajectory trail visualization
+- **Ball Tracking**: RF-DETR for per-frame tennis ball detection with fading trajectory trail visualization
 - **Player Detection**: RF-DETR (Detection Transformer) for real-time player bounding boxes with ByteTrack temporal smoothing
 - **Court Detection**: YOLO-Pose for 14-keypoint court geometry estimation with skeleton wireframe overlay
 - **Scoreboard Detection**: RF-DETR for scoreboard bounding box detection
@@ -37,8 +37,7 @@ Tennis_Analysis/
 │   └── figures/              # Generated graphics and annotated frames
 │
 ├── models/                   # Trained model checkpoints (not committed)
-│   ├── TrackNet_best.pt      # TrackNetV3 pretrained weights
-│   ├── InpaintNet_best.pt    # InpaintNet pretrained weights
+│   ├── ball_detection/       # RF-DETR checkpoints from SageMaker
 │   ├── player_detection/     # RF-DETR checkpoints from SageMaker
 │   ├── court_keypoint/       # YOLO-Pose weights from SageMaker
 │   └── scoreboard_detection/ # RF-DETR checkpoints from SageMaker
@@ -50,29 +49,18 @@ Tennis_Analysis/
 │
 ├── src/                      # Main Python package (installable via pip install -e .)
 │   ├── datasets/             # Data loading and preprocessing
-│   │   └── tracknet_dataset.py
 │   ├── models/               # Model architecture definitions
-│   │   └── tracknet.py       # TrackNet + InpaintNet
 │   ├── training/             # Training loops and schedulers
-│   │   ├── train_tracknet.py
+│   │   ├── train_ball_detection.py         # RF-DETR
 │   │   ├── train_player_detection.py       # RF-DETR
 │   │   ├── train_court_keypoint.py         # YOLO-Pose
 │   │   └── train_scoreboard_detection.py   # RF-DETR
-│   ├── evaluation/           # Metrics and evaluation pipelines
-│   │   └── evaluate.py
 │   ├── inference/            # Inference and prediction pipelines
-│   │   ├── ball_tracking.py  # End-to-end video ball tracking
-│   │   └── predict.py        # Batch prediction
-│   └── utils/                # Shared helpers, constants, visualization
-│       ├── general.py
-│       ├── metric.py
-│       └── visualize.py
+│   │   └── ball_tracking.py  # End-to-end RF-DETR ball tracking
+│   └── utils/                # Shared helpers and visualization
+│       └── general.py
 │
 ├── scripts/                  # Standalone CLI scripts (not part of the package)
-│   ├── preprocess.py         # Data preprocessing
-│   ├── correct_label.py      # Interactive label correction UI
-│   ├── error_analysis.py     # Error analysis dashboard
-│   ├── generate_mask_data.py # Generate inpainting masks
 │   ├── convert_coco_to_yolo_kpt.py  # Dataset format converter
 │   ├── test_models_on_video.py      # Run all models on test video
 │   └── sagemaker/            # AWS SageMaker training launchers
@@ -97,12 +85,6 @@ uv pip install -r requirements.txt
 
 # Pull trained models from S3 (requires AWS credentials)
 make pull-models
-
-# Download pretrained TrackNetV3 weights (from official repo via Google Drive)
-pip install gdown
-gdown "https://drive.google.com/uc?id=1CfzE87a0f6LhBp0kniSl1-89zaLCZ8cA" -O models/TrackNetV3_ckpts.zip
-unzip models/TrackNetV3_ckpts.zip -d models/ && mv models/ckpts/* models/ && rmdir models/ckpts
-rm models/TrackNetV3_ckpts.zip
 ```
 
 ## Usage
@@ -126,28 +108,35 @@ python scripts/test_models_on_video.py --no-scoreboard   # skip scoreboard detec
 
 # Custom model paths:
 python scripts/test_models_on_video.py \
-    --tracknet-model models/TrackNet_best.pt \
-    --inpaintnet-model models/InpaintNet_best.pt
+    --ball-model models/ball_detection/checkpoint_best_total.pth
 ```
 
-Output goes to `reports/figures/` (annotated video + sample frames). Ball tracking runs as a pre-processing step (TrackNetV3 processes 8-frame sequences with temporal ensemble), then overlays a fading trajectory trail on each frame alongside the other model annotations.
+Output goes to `reports/figures/` (annotated video + sample frames). Ball tracking runs per-frame with RF-DETR and overlays a fading trajectory trail alongside the other model annotations.
 
 ### Inference (Ball Tracking)
 
 ```bash
+# Default — runs on test video with default checkpoint path
 python -m src.inference.ball_tracking
+
+# Custom paths:
+python -m src.inference.ball_tracking \
+    --video data/raw/test_video/Test_Clip_1.mp4 \
+    --rfdetr-model models/ball_detection/checkpoint_best_total.pth \
+    --output reports/figures/ball_tracking.mp4
 ```
 
-### Training — Ball Tracking (TrackNet)
+### Training — Ball Detection (RF-DETR)
 
 ```bash
-python -m src.training.train_tracknet \
-    --model_name TrackNet \
-    --seq_len 8 \
-    --epochs 30 \
-    --batch_size 10 \
-    --bg_mode concat \
-    --save_dir experiments/tracknet_v1
+# Train with base model (default)
+python -m src.training.train_ball_detection
+
+# Train with large model for better accuracy
+python -m src.training.train_ball_detection \
+    --model large \
+    --epochs 100 \
+    --batch_size 4
 ```
 
 ### Training — Player Detection (RF-DETR)
@@ -215,48 +204,17 @@ python -m src.training.train_scoreboard_detection \
 Dataset: `data/raw/Scoreboard_Detection/` (COCO format, 161 train images)
 Classes: `scoreboard`
 
-### Evaluation
-
-```bash
-python -m src.evaluation.evaluate \
-    --tracknet_file models/TrackNet_best.pt \
-    --split test \
-    --eval_mode weight
-```
-
-### Data Preprocessing
-
-```bash
-python scripts/preprocess.py
-```
-
-### Interactive Label Correction
-
-```bash
-python scripts/correct_label.py --split test
-```
-
-### Error Analysis Dashboard
-
-```bash
-python scripts/error_analysis.py --split test
-```
-
 ## Models
 
-### Ball Tracking — TrackNetV3 + InpaintNet
+### Ball Tracking — RF-DETR
 
-Pretrained weights from the [official TrackNetV3 repo](https://github.com/qaz812345/TrackNetV3), originally trained on badminton shuttlecock data but generalizes well to tennis balls (small, fast-moving objects on a court).
+RF-DETR fine-tuned to detect tennis balls in broadcast video footage. Runs per-frame —
+no temporal stacking. The highest-confidence detection per frame is taken as "the ball";
+frames below threshold are marked as no-ball. A fading trajectory trail is drawn using
+supervision's TraceAnnotator.
 
-- **TrackNetV3**: 2D U-Net encoder-decoder
-  - Input: (N, 27, 288, 512) — 8 RGB frames + 1 median background, channel-concatenated
-  - Output: (N, 8, 288, 512) — per-frame heatmaps via sigmoid
-  - Temporal ensemble with triangular weighting for overlapping sequence predictions
-
-- **InpaintNet**: 1D U-Net operating on coordinate sequences
-  - Input: (N, L, 3) — normalized (x, y) + inpaint mask
-  - Output: (N, L, 2) — refined (x, y) coordinates
-  - Fills in trajectory gaps where the ball was occluded or missed by TrackNet
+Uses the same base/large architecture as player and scoreboard detection. Dataset is
+COCO-format with tennis ball bounding boxes.
 
 ### Player Detection — RF-DETR
 
@@ -396,6 +354,5 @@ Model checkpoints are stored in `models/` (gitignored). Architecture definitions
 
 ## References
 
-- [TrackNetV3](https://github.com/qaz812345/TrackNetV3) — "Enhancing ShuttleCock Tracking with Augmentations and Trajectory Rectification" (ACM 2023)
 - [RF-DETR](https://github.com/roboflow/rf-detr) — Real-time Detection Transformer
 - [Ultralytics YOLO](https://docs.ultralytics.com/) — YOLO-Pose for keypoint detection

@@ -1,1 +1,3 @@
-from src.models.tracknet import TrackNet as TrackNet, InpaintNet as InpaintNet
+# Models package — model architecture definitions.
+# RF-DETR and YOLO models are loaded directly from their respective packages
+# (rfdetr, ultralytics). No custom architecture definitions remain here.

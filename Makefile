@@ -1,4 +1,4 @@
-.PHONY: install data train-tracknet train-player-detection train-court-keypoint train-scoreboard-detection train-ball-detection evaluate inference test clean help
+.PHONY: install convert-yolo train-player-detection train-court-keypoint train-scoreboard-detection train-ball-detection inference test-models test clean help pull-models
 
 #################################################################################
 # GLOBALS                                                                       #
@@ -16,23 +16,9 @@ PYTHON_INTERPRETER = uv run python
 install:
 	uv pip install -e .
 
-## Preprocess raw data
-data:
-	$(PYTHON_INTERPRETER) scripts/preprocess.py
-
 ## Convert COCO annotations to YOLO format (court keypoints)
 convert-yolo:
 	$(PYTHON_INTERPRETER) scripts/convert_coco_to_yolo_kpt.py
-
-## Train TrackNet ball tracking model
-train-tracknet:
-	$(PYTHON_INTERPRETER) -m src.training.train_tracknet \
-		--model_name TrackNet \
-		--seq_len 8 \
-		--epochs 30 \
-		--batch_size 10 \
-		--bg_mode concat \
-		--save_dir experiments/tracknet_v1
 
 ## Train RF-DETR player detection model
 train-player-detection:
@@ -50,14 +36,7 @@ train-scoreboard-detection:
 train-ball-detection:
 	$(PYTHON_INTERPRETER) -m src.training.train_ball_detection
 
-## Evaluate TrackNet on test split
-evaluate:
-	$(PYTHON_INTERPRETER) -m src.evaluation.evaluate \
-		--tracknet_file models/TrackNet_best.pt \
-		--split test \
-		--eval_mode weight
-
-## Run ball tracking inference on test video
+## Run RF-DETR ball tracking inference on test video
 inference:
 	$(PYTHON_INTERPRETER) -m src.inference.ball_tracking
 
