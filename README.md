@@ -2,12 +2,13 @@
 
 ![Tennis Analysis Demo](reports/figures/demo.gif)
 
-End-to-end tennis video analysis combining four deep learning models — ball tracking, player detection, court keypoint detection, and scoreboard detection — with a unified visualization pipeline.
+End-to-end tennis video analysis combining three deep learning models — ball tracking, player detection, and court keypoint detection — with a unified visualization pipeline.
 
 - **Ball Tracking**: RF-DETR for per-frame tennis ball detection with fading trajectory trail visualization
 - **Player Detection**: RF-DETR (Detection Transformer) for real-time player bounding boxes with ByteTrack temporal smoothing
 - **Court Detection**: YOLO-Pose for 14-keypoint court geometry estimation with skeleton wireframe overlay
-- **Scoreboard Detection**: RF-DETR for scoreboard bounding box detection
+
+> Scoreboard detection and point-by-point OCR have moved to a sibling repo: [Point_By_Point_Tennis_Score_Extraction](https://github.com/Terrance-Whitehurst/Point_By_Point_Tennis_Score_Extraction).
 
 ## Project Structure
 
@@ -20,10 +21,8 @@ Tennis_Analysis/
 ├── pyproject.toml            # Package metadata and dependencies
 ├── requirements.txt          # Flat dependency list
 │
-├── configs/                  # Experiment configs and label corrections
-│   ├── drop_frame.json
-│   ├── court_keypoint.yaml   # YOLO dataset config for court keypoints
-│   └── corrected_test_label/
+├── configs/                  # Experiment configs
+│   └── court_keypoint.yaml   # YOLO dataset config for court keypoints
 │
 ├── data/                     # Dataset storage — NOT committed to git
 │   ├── raw/                  # Original immutable datasets and test videos
@@ -39,8 +38,7 @@ Tennis_Analysis/
 ├── models/                   # Trained model checkpoints (not committed)
 │   ├── ball_detection/       # RF-DETR checkpoints from SageMaker
 │   ├── player_detection/     # RF-DETR checkpoints from SageMaker
-│   ├── court_keypoint/       # YOLO-Pose weights from SageMaker
-│   └── scoreboard_detection/ # RF-DETR checkpoints from SageMaker
+│   └── court_keypoint/       # YOLO-Pose weights from SageMaker
 │
 ├── notebooks/                # Jupyter notebooks for exploration
 │                             # Naming: <number>-<initials>-<description>.ipynb
@@ -53,8 +51,7 @@ Tennis_Analysis/
 │   ├── training/             # Training loops and schedulers
 │   │   ├── train_ball_detection.py         # RF-DETR
 │   │   ├── train_player_detection.py       # RF-DETR
-│   │   ├── train_court_keypoint.py         # YOLO-Pose
-│   │   └── train_scoreboard_detection.py   # RF-DETR
+│   │   └── train_court_keypoint.py         # YOLO-Pose
 │   ├── inference/            # Inference and prediction pipelines
 │   │   └── ball_tracking.py  # End-to-end RF-DETR ball tracking
 │   └── utils/                # Shared helpers and visualization
@@ -66,10 +63,10 @@ Tennis_Analysis/
 │   └── sagemaker/            # AWS SageMaker training launchers
 │       ├── entry_player_detection.py
 │       ├── entry_court_keypoint.py
-│       ├── entry_scoreboard_detection.py
+│       ├── entry_ball_detection.py
 │       ├── launch_player_detection.py
 │       ├── launch_court_keypoint.py
-│       └── launch_scoreboard_detection.py
+│       └── launch_ball_detection.py
 │
 └── tests/                    # Unit and integration tests
 ```
@@ -94,17 +91,16 @@ Use `make help` to see all available commands.
 ### Test All Models on Video
 
 ```bash
-# Run all models (ball tracking + player detection + court keypoint + scoreboard detection)
+# Run all models (ball tracking + player detection + court keypoint)
 make test-models
 
 # Or directly:
 python scripts/test_models_on_video.py --video data/raw/test_video/Test_Clip_1.mp4
 
 # Selectively disable models:
-python scripts/test_models_on_video.py --no-ball         # skip ball tracking
-python scripts/test_models_on_video.py --no-court        # skip court keypoint model
-python scripts/test_models_on_video.py --no-player       # skip player detection model
-python scripts/test_models_on_video.py --no-scoreboard   # skip scoreboard detection model
+python scripts/test_models_on_video.py --no-ball     # skip ball tracking
+python scripts/test_models_on_video.py --no-court    # skip court keypoint model
+python scripts/test_models_on_video.py --no-player   # skip player detection model
 
 # Custom model paths:
 python scripts/test_models_on_video.py \
@@ -184,26 +180,6 @@ python -m src.training.train_court_keypoint \
 Dataset: `data/raw/Tennis_Court_Keypoint/` (828 train / 55 val / 37 test images)
 Detects 14 keypoints defining the court geometry with skeleton connections.
 
-### Training — Scoreboard Detection (RF-DETR)
-
-```bash
-# Train with base model (default)
-python -m src.training.train_scoreboard_detection
-
-# Train with large model for better accuracy
-python -m src.training.train_scoreboard_detection \
-    --model large \
-    --epochs 100 \
-    --batch_size 4
-
-# Resume from checkpoint
-python -m src.training.train_scoreboard_detection \
-    --resume models/scoreboard_detection/checkpoint.pt
-```
-
-Dataset: `data/raw/Scoreboard_Detection/` (COCO format, 161 train images)
-Classes: `scoreboard`
-
 ## Models
 
 ### Ball Tracking — RF-DETR
@@ -213,8 +189,8 @@ no temporal stacking. The highest-confidence detection per frame is taken as "th
 frames below threshold are marked as no-ball. A fading trajectory trail is drawn using
 supervision's TraceAnnotator.
 
-Uses the same base/large architecture as player and scoreboard detection. Dataset is
-COCO-format with tennis ball bounding boxes.
+Uses the same base/large architecture as player detection. Dataset is COCO-format
+with tennis ball bounding boxes.
 
 ### Player Detection — RF-DETR
 
@@ -229,15 +205,9 @@ Ultralytics YOLO pose estimation model fine-tuned for tennis court keypoint dete
 Detects 14 keypoints that define the court geometry (corners, service lines, center marks)
 with a skeleton graph connecting them.
 
-### Scoreboard Detection — RF-DETR
-
-RF-DETR fine-tuned to detect scoreboard overlays in broadcast tennis footage.
-Uses the same base/large architecture as player detection. Dataset is COCO-format
-with a single `scoreboard` class.
-
 ## Training on AWS SageMaker
 
-Player detection, court keypoint, and scoreboard detection training can all be launched as SageMaker training jobs on GPU instances. The launcher scripts handle data upload to S3, job configuration, and submission.
+Player detection, court keypoint, and ball detection training can all be launched as SageMaker training jobs on GPU instances. The launcher scripts handle data upload to S3, job configuration, and submission.
 
 ### Prerequisites
 
@@ -298,27 +268,6 @@ python scripts/sagemaker/launch_court_keypoint.py \
     --spot
 ```
 
-### Launch Scoreboard Detection (RF-DETR) on SageMaker
-
-```bash
-# Basic — uploads local data, starts training on ml.g4dn.xlarge
-python scripts/sagemaker/launch_scoreboard_detection.py \
-    --role $ROLE_ARN
-
-# Custom instance and hyperparams
-python scripts/sagemaker/launch_scoreboard_detection.py \
-    --role $ROLE_ARN \
-    --instance_type ml.g5.xlarge \
-    --model large \
-    --epochs 100 \
-    --batch_size 16
-
-# Data already on S3
-python scripts/sagemaker/launch_scoreboard_detection.py \
-    --role $ROLE_ARN \
-    --s3_data s3://my-bucket/datasets/Scoreboard_Detection
-```
-
 ### Instance Type Recommendations
 
 | Task | Budget | Recommended Instance | GPU | VRAM |
@@ -327,8 +276,8 @@ python scripts/sagemaker/launch_scoreboard_detection.py \
 | Player Detection (large) | Medium | `ml.g5.xlarge` | A10G | 24 GB |
 | Court Keypoint (640px) | Low | `ml.g4dn.xlarge` | T4 | 16 GB |
 | Court Keypoint (1280px) | Medium | `ml.g5.xlarge` | A10G | 24 GB |
-| Scoreboard Detection (base) | Low | `ml.g4dn.xlarge` | T4 | 16 GB |
-| Scoreboard Detection (large) | Medium | `ml.g5.xlarge` | A10G | 24 GB |
+| Ball Detection (base) | Low | `ml.g4dn.xlarge` | T4 | 16 GB |
+| Ball Detection (large) | Medium | `ml.g5.xlarge` | A10G | 24 GB |
 | Any (fastest) | High | `ml.p3.2xlarge` | V100 | 16 GB |
 
 Add `--spot` for ~60-70% cost savings (jobs may be interrupted and restarted).
@@ -344,10 +293,8 @@ Or manually:
 ```bash
 aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/player_detection/<job>/output/model.tar.gz models/player_detection/
 aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/court_keypoint/<job>/output/model.tar.gz models/court_keypoint/
-aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/scoreboard_detection/<job>/output/model.tar.gz models/scoreboard_detection/
 tar xzf models/player_detection/model.tar.gz -C models/player_detection/
 tar xzf models/court_keypoint/model.tar.gz -C models/court_keypoint/
-tar xzf models/scoreboard_detection/model.tar.gz -C models/scoreboard_detection/
 ```
 
 Model checkpoints are stored in `models/` (gitignored). Architecture definitions live in `src/models/`.

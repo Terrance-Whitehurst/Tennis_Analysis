@@ -1,4 +1,4 @@
-.PHONY: install convert-yolo train-player-detection train-court-keypoint train-scoreboard-detection train-ball-detection inference test-models test clean help pull-models
+.PHONY: install convert-yolo train-player-detection train-court-keypoint train-ball-detection inference test-models test clean help pull-models
 
 #################################################################################
 # GLOBALS                                                                       #
@@ -28,10 +28,6 @@ train-player-detection:
 train-court-keypoint:
 	$(PYTHON_INTERPRETER) -m src.training.train_court_keypoint
 
-## Train RF-DETR scoreboard detection model
-train-scoreboard-detection:
-	$(PYTHON_INTERPRETER) -m src.training.train_scoreboard_detection
-
 ## Train RF-DETR tennis ball detection model
 train-ball-detection:
 	$(PYTHON_INTERPRETER) -m src.training.train_ball_detection
@@ -56,13 +52,11 @@ clean:
 
 ## Pull model artifacts from S3
 pull-models:
-	mkdir -p models/player_detection models/court_keypoint models/scoreboard_detection
+	mkdir -p models/player_detection models/court_keypoint
 	aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/player_detection/rfdetr-player-base-20260403-054623/output/model.tar.gz models/player_detection/model.tar.gz
 	aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/court_keypoint/yolo-court-yolo11m-20260403-070739/output/model.tar.gz models/court_keypoint/model.tar.gz
 	tar xzf models/player_detection/model.tar.gz -C models/player_detection/
 	tar xzf models/court_keypoint/model.tar.gz -C models/court_keypoint/
-	@echo "NOTE: Scoreboard detection model must be pulled separately once a SageMaker job completes."
-	@echo "      aws s3 cp s3://training-jobs-test-315109499400/tennis-analysis/models/scoreboard_detection/<job>/output/model.tar.gz models/scoreboard_detection/"
 
 #################################################################################
 # Self-documenting Makefile                                                     #

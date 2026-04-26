@@ -1,20 +1,19 @@
 """
-Test trained player detection, court keypoint, scoreboard detection, and
-ball detection models on test video.
+Test trained player detection, court keypoint, and ball detection models
+on test video.
 
-Runs RF-DETR (player detection + scoreboard detection + ball detection),
-YOLO-Pose (court keypoint detection) on each frame of the test video,
-saves an annotated output video with supervision-powered visualizations:
-smooth player trails, clean court wireframe, scoreboard bounding boxes,
-ball detection with trajectory trail, and polished annotations.
+Runs RF-DETR (player detection + ball detection) and YOLO-Pose (court
+keypoint detection) on each frame of the test video, saves an annotated
+output video with supervision-powered visualizations: smooth player trails,
+clean court wireframe, ball detection with trajectory trail, and polished
+annotations.
 
 Usage:
     python scripts/test_models_on_video.py
     python scripts/test_models_on_video.py --video data/raw/test_video/Test_Clip_1.mp4
-    python scripts/test_models_on_video.py --no-court       # skip court keypoint model
-    python scripts/test_models_on_video.py --no-player      # skip player detection model
-    python scripts/test_models_on_video.py --no-scoreboard  # skip scoreboard detection model
-    python scripts/test_models_on_video.py --no-ball        # skip ball detection model
+    python scripts/test_models_on_video.py --no-court    # skip court keypoint model
+    python scripts/test_models_on_video.py --no-player   # skip player detection model
+    python scripts/test_models_on_video.py --no-ball     # skip ball detection model
 """
 
 import argparse
@@ -35,7 +34,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 DEFAULT_VIDEO = "data/raw/test_video/Test_Clip_1.mp4"
 DEFAULT_PLAYER_MODEL = "models/player_detection/checkpoint_best_total.pth"
 DEFAULT_COURT_MODEL = "models/court_keypoint/best.pt"
-DEFAULT_SCOREBOARD_MODEL = "models/scoreboard_detection/checkpoint_best_total.pth"
 DEFAULT_BALL_MODEL = "models/ball_detection/checkpoint_best_total.pth"
 DEFAULT_OUTPUT_DIR = "reports/figures"
 
@@ -65,14 +63,12 @@ SKELETON = [
 ]
 
 CLASS_NAMES = ["players-balls-court", "player-back", "player-front"]
-SCOREBOARD_CLASS_NAMES = ["scoreboards"]
 BALL_CLASS_NAMES = ["tennis-ball", "tennis_ball"]
 
 # Colors
 COURT_LINE_COLOR = sv.Color.from_hex("#FF4444")  # red
 COURT_VERTEX_COLOR = sv.Color.from_hex("#FF6666")
 PLAYER_COLORS = sv.ColorPalette.from_hex(["#00FF00", "#4488FF"])  # green, blue
-SCOREBOARD_COLOR = sv.Color.from_hex("#FFD700")  # gold
 
 
 def load_player_detection_model(checkpoint_path, device):
@@ -103,26 +99,6 @@ def load_court_keypoint_model(checkpoint_path):
     return model
 
 
-def load_scoreboard_detection_model(checkpoint_path, device):
-    """Load RF-DETR model from SageMaker training checkpoint for scoreboard detection."""
-    from rfdetr import RFDETRBase
-
-    model = RFDETRBase()
-    # Reinitialize detection head for 3 outputs (2 classes + background index)
-    model.model.reinitialize_detection_head(num_classes=3)
-    model.model.class_names = SCOREBOARD_CLASS_NAMES
-
-    ckpt = torch.load(checkpoint_path, map_location="cpu")
-    state_dict = ckpt["state_dict"]
-    # Strip the 'model.' prefix added by PyTorch Lightning
-    cleaned = {k.replace("model.", "", 1): v for k, v in state_dict.items()}
-    model.model.model.load_state_dict(cleaned)
-    model.model.model.to(device)
-    model.model.device = device
-    model.model.model.eval()
-    return model
-
-
 def run_player_detection(model, frame):
     """Run RF-DETR player detection on a single frame.
 
@@ -134,19 +110,6 @@ def run_player_detection(model, frame):
     if detections is None or len(detections) == 0:
         return sv.Detections.empty()
     # Remove non-indexable arrays that break ByteTrack filtering
-    detections.data.pop("source_image", None)
-    detections.data.pop("source_shape", None)
-    return detections
-
-
-def run_scoreboard_detection(model, frame):
-    """Run RF-DETR scoreboard detection on a single frame.
-
-    Returns sv.Detections with bounding boxes, confidence, and class IDs.
-    """
-    detections = model.predict(frame, threshold=0.5)
-    if detections is None or len(detections) == 0:
-        return sv.Detections.empty()
     detections.data.pop("source_image", None)
     detections.data.pop("source_shape", None)
     return detections
@@ -203,7 +166,6 @@ def main():
     parser.add_argument("--video", default=DEFAULT_VIDEO, help="Input video path")
     parser.add_argument("--player-model", default=DEFAULT_PLAYER_MODEL)
     parser.add_argument("--court-model", default=DEFAULT_COURT_MODEL)
-    parser.add_argument("--scoreboard-model", default=DEFAULT_SCOREBOARD_MODEL)
     parser.add_argument("--ball-model", default=DEFAULT_BALL_MODEL)
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
@@ -211,9 +173,6 @@ def main():
     )
     parser.add_argument(
         "--no-court", action="store_true", help="Skip court keypoint detection"
-    )
-    parser.add_argument(
-        "--no-scoreboard", action="store_true", help="Skip scoreboard detection"
     )
     parser.add_argument("--no-ball", action="store_true", help="Skip ball detection")
     parser.add_argument(
@@ -237,7 +196,6 @@ def main():
     # Load models
     player_model = None
     court_model = None
-    scoreboard_model = None
 
     if not args.no_player:
         print(f"Loading player detection model: {args.player_model}")
@@ -254,16 +212,6 @@ def main():
         )
         court_model = load_court_keypoint_model(args.court_model)
         print("  Court keypoint model loaded.")
-
-    if not args.no_scoreboard:
-        print(f"Loading scoreboard detection model: {args.scoreboard_model}")
-        assert Path(args.scoreboard_model).exists(), (
-            f"Scoreboard model not found: {args.scoreboard_model}"
-        )
-        scoreboard_model = load_scoreboard_detection_model(
-            args.scoreboard_model, device
-        )
-        print("  Scoreboard detection model loaded.")
 
     # Load ball detection model (RF-DETR, runs per-frame like other detectors)
     ball_model = None
@@ -321,18 +269,6 @@ def main():
         end_angle=235,
         color_lookup=sv.ColorLookup.TRACK,
     )
-    # Scoreboard detection annotators
-    scoreboard_box_annotator = sv.BoxCornerAnnotator(
-        color=sv.ColorPalette.from_hex(["#FFD700"]),
-        thickness=2,
-        corner_length=15,
-    )
-    scoreboard_label_annotator = sv.LabelAnnotator(
-        color=sv.ColorPalette.from_hex(["#FFD700"]),
-        text_color=sv.Color.BLACK,
-        text_scale=0.5,
-        text_padding=4,
-    )
 
     # Ball detection annotators
     ball_triangle_annotator = sv.TriangleAnnotator(
@@ -367,7 +303,6 @@ def main():
     frame_idx = 0
     total_player_dets = 0
     total_court_dets = 0
-    total_scoreboard_dets = 0
     total_ball_dets = 0
     start_time = time.time()
 
@@ -396,32 +331,6 @@ def main():
             except Exception as e:
                 if frame_idx == 0:
                     print(f"  Court keypoint error: {e}")
-
-        # Scoreboard detection
-        if scoreboard_model is not None:
-            try:
-                sb_detections = run_scoreboard_detection(scoreboard_model, frame)
-                if len(sb_detections) > 0:
-                    sb_labels = []
-                    for i in range(len(sb_detections)):
-                        conf = sb_detections.confidence[i]
-                        sb_labels.append(f"scoreboard {conf:.2f}")
-
-                    annotated = scoreboard_box_annotator.annotate(
-                        annotated, sb_detections
-                    )
-                    annotated = scoreboard_label_annotator.annotate(
-                        annotated, sb_detections, labels=sb_labels
-                    )
-                    total_scoreboard_dets += len(sb_detections)
-
-                    if frame_idx % 10 == 0:
-                        print(
-                            f"  Frame {frame_idx:4d} | Scoreboards: {len(sb_detections)}"
-                        )
-            except Exception as e:
-                if frame_idx == 0:
-                    print(f"  Scoreboard detection error: {e}")
 
         # Player detection with tracking
         if player_model is not None:
@@ -528,11 +437,6 @@ def main():
         )
     if court_model is not None:
         print(f"  Court detections: {total_court_dets}/{frame_idx} frames")
-    if scoreboard_model is not None:
-        print(
-            f"  Total scoreboard detections: {total_scoreboard_dets}"
-            f" ({total_scoreboard_dets / max(frame_idx, 1):.1f} avg/frame)"
-        )
     if ball_model is not None:
         print(
             f"  Ball detections: {total_ball_dets}/{frame_idx} frames"

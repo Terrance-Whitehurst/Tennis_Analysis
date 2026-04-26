@@ -1,7 +1,7 @@
 [project]
 name = "tennis-analysis"
 version = "0.1.0"
-description = "Tennis ball tracking, player detection, and court keypoint detection"
+description = "Tennis ball tracking, player detection, and court keypoint detection (visual analysis only; scoreboard OCR lives in Point_By_Point_Tennis_Score_Extraction)"
 requires-python = ">=3.9"
 dependencies = [
     "dash>=2.5.1",
