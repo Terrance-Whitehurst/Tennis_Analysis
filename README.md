@@ -8,8 +8,6 @@ End-to-end tennis video analysis combining three deep learning models — ball t
 - **Player Detection**: RF-DETR (Detection Transformer) for real-time player bounding boxes with ByteTrack temporal smoothing
 - **Court Detection**: YOLO-Pose for 14-keypoint court geometry estimation with skeleton wireframe overlay
 
-> Scoreboard detection and point-by-point OCR have moved to a sibling repo: [Point_By_Point_Tennis_Score_Extraction](https://github.com/Terrance-Whitehurst/Point_By_Point_Tennis_Score_Extraction).
-
 ## Project Structure
 
 This project follows the [Cookiecutter Data Science](https://cookiecutter-data-science.drivendata.org/) (CCDS v2) convention.
