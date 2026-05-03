@@ -1,0 +1,32 @@
+# Tennis Court Instance Segmentation — YOLO Dataset Config
+#
+# Source dataset: Roboflow export, 2026 Acapulco ATP broadcast frames
+#   Original format: COCO segmentation polygon (_annotations.coco.json)
+#   Converted to:   YOLO-seg polygon .txt via scripts/convert_coco_to_yolo_seg.py
+#
+# Split sizes (post-conversion):
+#   train: 427 images, 3,377 annotations
+#   valid:   2 images,    14 annotations  ← WARNING: extremely small, see note below
+#   test:    2 images,    14 annotations
+#
+# WARNING: valid/test splits have only 2 images each (same video clip).
+#   mAP and other val metrics will be noisy during training.
+#   Strongly recommended: re-split before training. Run:
+#     python scripts/convert_coco_to_yolo_seg.py
+#   and follow the re-split instructions printed at the end.
+#
+# Classes: 3 active court region types (parent class "courts" has no annotations)
+#   0: doubles_alley  — the two side channels outside singles lines
+#   1: no_mans_land   — the area behind the service box, inside baseline
+#   2: service_box    — the four service boxes between net and service line
+
+path: ../data/processed/court_segmentation_yolo
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 3
+names:
+  0: doubles_alley
+  1: no_mans_land
+  2: service_box

@@ -66,5 +66,8 @@ RECONSTRUCTURING.md
 Pi/
 .pi/
 
+# Multi-Team Chat — agent session data
+.pi/multi-team/sessions/
+
 # uv lock (optional - remove if you want reproducible builds tracked)
 # uv.lock

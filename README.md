@@ -36,7 +36,8 @@ Tennis_Analysis/
 ├── models/                   # Trained model checkpoints (not committed)
 │   ├── ball_detection/       # RF-DETR checkpoints from SageMaker
 │   ├── player_detection/     # RF-DETR checkpoints from SageMaker
-│   └── court_keypoint/       # YOLO-Pose weights from SageMaker
+│   ├── court_keypoint/       # YOLO-Pose weights from SageMaker
+│   └── court_segmentation/   # YOLO11-Seg weights from Modal
 │
 ├── notebooks/                # Jupyter notebooks for exploration
 │                             # Naming: <number>-<initials>-<description>.ipynb
@@ -49,22 +50,26 @@ Tennis_Analysis/
 │   ├── training/             # Training loops and schedulers
 │   │   ├── train_ball_detection.py         # RF-DETR
 │   │   ├── train_player_detection.py       # RF-DETR
-│   │   └── train_court_keypoint.py         # YOLO-Pose
+│   │   ├── train_court_keypoint.py         # YOLO-Pose
+│   │   └── train_court_segmentation.py     # YOLO11-Seg
 │   ├── inference/            # Inference and prediction pipelines
 │   │   └── ball_tracking.py  # End-to-end RF-DETR ball tracking
 │   └── utils/                # Shared helpers and visualization
 │       └── general.py
 │
 ├── scripts/                  # Standalone CLI scripts (not part of the package)
-│   ├── convert_coco_to_yolo_kpt.py  # Dataset format converter
+│   ├── convert_coco_to_yolo_kpt.py  # Dataset format converter (court keypoints)
+│   ├── convert_coco_to_yolo_seg.py  # Dataset format converter (court segmentation)
 │   ├── test_models_on_video.py      # Run all models on test video
-│   └── sagemaker/            # AWS SageMaker training launchers
-│       ├── entry_player_detection.py
-│       ├── entry_court_keypoint.py
-│       ├── entry_ball_detection.py
-│       ├── launch_player_detection.py
-│       ├── launch_court_keypoint.py
-│       └── launch_ball_detection.py
+│   ├── sagemaker/            # AWS SageMaker training launchers
+│   │   ├── entry_player_detection.py
+│   │   ├── entry_court_keypoint.py
+│   │   ├── entry_ball_detection.py
+│   │   ├── launch_player_detection.py
+│   │   ├── launch_court_keypoint.py
+│   │   └── launch_ball_detection.py
+│   └── modal/                # Modal serverless GPU launchers
+│       └── launch_court_segmentation.py
 │
 └── tests/                    # Unit and integration tests
 ```
@@ -178,6 +183,29 @@ python -m src.training.train_court_keypoint \
 Dataset: `data/raw/Tennis_Court_Keypoint/` (828 train / 55 val / 37 test images)
 Detects 14 keypoints defining the court geometry with skeleton connections.
 
+### Training — Court Segmentation (YOLO11-Seg)
+
+```bash
+# Step 1: Convert COCO annotations to YOLO-seg format (only needed once)
+python scripts/convert_coco_to_yolo_seg.py
+
+# Step 2: Train locally
+python -m src.training.train_court_segmentation
+
+# Larger model, more epochs
+python -m src.training.train_court_segmentation \
+    --model yolo11l-seg.pt \
+    --epochs 150 \
+    --imgsz 640
+
+# Resume from checkpoint
+python -m src.training.train_court_segmentation \
+    --resume experiments/court_segmentation/run/weights/last.pt
+```
+
+Dataset: `data/raw/court_segmentation/` (COCO format, auto-converted to YOLO-seg)
+Classes: `doubles_alley`, `no_mans_land`, `service_box`
+
 ## Models
 
 ### Ball Tracking — RF-DETR
@@ -202,6 +230,64 @@ Available in two sizes:
 Ultralytics YOLO pose estimation model fine-tuned for tennis court keypoint detection.
 Detects 14 keypoints that define the court geometry (corners, service lines, center marks)
 with a skeleton graph connecting them.
+
+### Court Segmentation — YOLO11-Seg
+
+Ultralytics YOLO11 instance segmentation model fine-tuned for tennis court region segmentation.
+Detects three court zone classes — doubles alleys, no-man's-land, and service boxes — with
+pixel-level polygon masks.
+
+Dataset: `data/raw/court_segmentation/` (COCO format, 427 train / 2 val / 2 test images)
+Classes: `doubles_alley`, `no_mans_land`, `service_box`
+
+## Training on Modal
+
+Court segmentation training can be launched on [Modal](https://modal.com) serverless GPUs. The launcher script handles dataset packaging, GPU provisioning, and weight persistence.
+
+### Prerequisites
+
+```bash
+# Install Modal SDK
+pip install modal
+
+# One-time authentication (opens browser)
+modal token new
+```
+
+### Launch Court Segmentation on Modal
+
+```bash
+# Default — A10G GPU, 100 epochs, yolo11m-seg
+python scripts/modal/launch_court_segmentation.py
+
+# Or via Makefile
+make train-court-segmentation-modal
+
+# Detached mode (runs in background)
+python scripts/modal/launch_court_segmentation.py --detach
+
+# Custom GPU and model
+python scripts/modal/launch_court_segmentation.py \
+    --gpu A100 \
+    --model yolo11l-seg.pt \
+    --epochs 150
+
+# Retrieve trained weights after completion
+modal volume get tennis-court-seg-outputs run/best.pt models/court_segmentation/best.pt
+modal volume get tennis-court-seg-outputs run/last.pt  models/court_segmentation/last.pt
+
+# List all artifacts in the volume
+modal volume ls tennis-court-seg-outputs
+```
+
+### Modal GPU Options
+
+| GPU | VRAM | Cost (approx) | Best for |
+|-----|------|---------------|----------|
+| `T4` | 16 GB | ~$0.15/hr | Budget runs |
+| `L4` | 24 GB | ~$0.28/hr | Good balance |
+| `A10G` | 24 GB | ~$0.36/hr | Default, fast |
+| `A100` | 40/80 GB | ~$1.10/hr | Large models, max speed |
 
 ## Training on AWS SageMaker
 
@@ -301,3 +387,4 @@ Model checkpoints are stored in `models/` (gitignored). Architecture definitions
 
 - [RF-DETR](https://github.com/roboflow/rf-detr) — Real-time Detection Transformer
 - [Ultralytics YOLO](https://docs.ultralytics.com/) — YOLO-Pose for keypoint detection
+- [Modal](https://modal.com) — Serverless GPU compute for ML training

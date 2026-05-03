@@ -1,4 +1,4 @@
-.PHONY: install convert-yolo train-player-detection train-court-keypoint train-ball-detection inference test-models test clean help pull-models
+.PHONY: install convert-yolo convert-court-seg train-player-detection train-court-keypoint train-ball-detection train-court-segmentation-modal inference test-models test clean help pull-models
 
 #################################################################################
 # GLOBALS                                                                       #
@@ -20,6 +20,10 @@ install:
 convert-yolo:
 	$(PYTHON_INTERPRETER) scripts/convert_coco_to_yolo_kpt.py
 
+## Convert court segmentation COCO annotations to YOLO format
+convert-court-seg:
+	$(PYTHON_INTERPRETER) scripts/convert_coco_to_yolo_seg.py
+
 ## Train RF-DETR player detection model
 train-player-detection:
 	$(PYTHON_INTERPRETER) -m src.training.train_player_detection
@@ -31,6 +35,10 @@ train-court-keypoint:
 ## Train RF-DETR tennis ball detection model
 train-ball-detection:
 	$(PYTHON_INTERPRETER) -m src.training.train_ball_detection
+
+## Train court segmentation model on Modal (serverless GPU)
+train-court-segmentation-modal:
+	$(PYTHON_INTERPRETER) scripts/modal/launch_court_segmentation.py
 
 ## Run RF-DETR ball tracking inference on test video
 inference:

@@ -1,19 +1,22 @@
 """
-Test trained player detection, court keypoint, and ball detection models
-on test video.
+Test trained player detection, court segmentation, and ball detection models
+on test video(s).
 
-Runs RF-DETR (player detection + ball detection) and YOLO-Pose (court
-keypoint detection) on each frame of the test video, saves an annotated
-output video with supervision-powered visualizations: smooth player trails,
-clean court wireframe, ball detection with trajectory trail, and polished
-annotations.
+Runs RF-DETR (player + ball) and RF-DETR-Seg (court instance segmentation)
+on each frame, writing an annotated MP4 with semi-transparent court masks,
+player ellipses + triangles with ByteTrack IDs, and a tennis-ball trail.
 
 Usage:
+    # Default — process every video in test_vids/
     python scripts/test_models_on_video.py
-    python scripts/test_models_on_video.py --video data/raw/test_video/Test_Clip_1.mp4
-    python scripts/test_models_on_video.py --no-court    # skip court keypoint model
-    python scripts/test_models_on_video.py --no-player   # skip player detection model
-    python scripts/test_models_on_video.py --no-ball     # skip ball detection model
+
+    # Single clip
+    python scripts/test_models_on_video.py --video test_vids/Clip1.mp4
+
+    # Skip a model
+    python scripts/test_models_on_video.py --no-court
+    python scripts/test_models_on_video.py --no-player
+    python scripts/test_models_on_video.py --no-ball
 """
 
 import argparse
@@ -27,47 +30,32 @@ import numpy as np
 import supervision as sv
 import torch
 
-# Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Default paths
-DEFAULT_VIDEO = "data/raw/test_video/Test_Clip_1.mp4"
+# ── Default paths ────────────────────────────────────────────────────────────
+DEFAULT_VIDEO_DIR = "test_vids"
 DEFAULT_PLAYER_MODEL = "models/player_detection/checkpoint_best_total.pth"
-DEFAULT_COURT_MODEL = "models/court_keypoint/best.pt"
+DEFAULT_COURT_MODEL = "models/court_segmentation/rfdetr_best.pth"
 DEFAULT_BALL_MODEL = "models/ball_detection/checkpoint_best_total.pth"
 DEFAULT_OUTPUT_DIR = "reports/figures"
 
-# Court keypoint skeleton connections — 1-indexed to match supervision's EdgeAnnotator
-# (sv.EdgeAnnotator internally does xy[index - 1])
-# These trace the actual court lines (baselines, sidelines, service lines, center line)
-SKELETON = [
-    (1, 5),  # corner1 -> service_line1
-    (5, 7),  # service_line1 -> service_line3
-    (7, 2),  # service_line3 -> corner2
-    (2, 4),  # corner2 -> corner4
-    (4, 8),  # corner4 -> service_line4
-    (8, 6),  # service_line4 -> service_line2
-    (6, 3),  # service_line2 -> corner3
-    (3, 1),  # corner3 -> corner1
-    (5, 9),  # service_line1 -> inner1
-    (9, 11),  # inner1 -> inner3
-    (11, 6),  # inner3 -> service_line2
-    (7, 10),  # service_line3 -> inner2
-    (10, 12),  # inner2 -> inner4
-    (12, 8),  # inner4 -> service_line4
-    (9, 13),  # inner1 -> center1
-    (13, 10),  # center1 -> inner2
-    (11, 14),  # inner3 -> center2
-    (14, 12),  # center2 -> inner4
-    (13, 14),  # center1 -> center2 (center service line)
-]
-
+# ── Class labels ─────────────────────────────────────────────────────────────
 CLASS_NAMES = ["players-balls-court", "player-back", "player-front"]
 BALL_CLASS_NAMES = ["tennis-ball", "tennis_ball"]
+# Indices match the Roboflow COCO export's category ids (id=0 is the unused
+# 'courts' supercategory; the model never predicts it).
+COURT_CLASS_NAMES = ["courts", "doubles_alley", "no_mans_land", "service_box"]
 
-# Colors
-COURT_LINE_COLOR = sv.Color.from_hex("#FF4444")  # red
-COURT_VERTEX_COLOR = sv.Color.from_hex("#FF6666")
+# ── Colors ───────────────────────────────────────────────────────────────────
+# Court regions — distinct hues, semi-transparent overlays. Index 0 is the
+# unused 'courts' supercategory; included only to keep the palette aligned
+# with class_id without manual remapping.
+COURT_PALETTE = sv.ColorPalette.from_hex([
+    "#000000",  # courts (unused)
+    "#FFB347",  # doubles_alley — orange
+    "#9C6ADE",  # no_mans_land — purple
+    "#5DD39E",  # service_box  — mint green
+])
 PLAYER_COLORS = sv.ColorPalette.from_hex(["#00FF00", "#4488FF"])  # green, blue
 
 
@@ -91,11 +79,18 @@ def load_player_detection_model(checkpoint_path, device):
     return model
 
 
-def load_court_keypoint_model(checkpoint_path):
-    """Load YOLO-Pose model for court keypoint detection."""
-    from ultralytics import YOLO
+def load_court_segmentation_model(checkpoint_path, device):
+    """Load fine-tuned RF-DETR-Seg-Medium for court instance segmentation."""
+    from rfdetr import RFDETRSegMedium
 
-    model = YOLO(checkpoint_path)
+    # Construct with default config, then load our 3-class fine-tuned weights.
+    # The checkpoint was written by rfdetr's own trainer, so pretrain_weights=
+    # is the documented loading path.
+    model = RFDETRSegMedium(pretrain_weights=checkpoint_path)
+    model.model.class_names = COURT_CLASS_NAMES
+    model.model.model.to(device)
+    model.model.device = device
+    model.model.model.eval()
     return model
 
 
@@ -148,108 +143,61 @@ def run_ball_detection(model, frame):
     return detections
 
 
-def run_court_keypoint(model, frame):
-    """Run YOLO-Pose court keypoint detection on a single frame.
+def run_court_segmentation(model, frame):
+    """Run RF-DETR-Seg court segmentation on a single frame.
 
-    Returns sv.KeyPoints for use with supervision annotators.
+    Returns sv.Detections with .mask populated (boolean H×W per instance).
     """
-    results = model.predict(frame, verbose=False)
-    if not results or len(results) == 0:
-        return None, None
-    r = results[0]
-    keypoints = sv.KeyPoints.from_ultralytics(r)
-    return keypoints, r
+    detections = model.predict(frame, threshold=0.3)
+    if detections is None or len(detections) == 0:
+        return sv.Detections.empty()
+    detections.data.pop("source_image", None)
+    detections.data.pop("source_shape", None)
+    return detections
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Test models on video")
-    parser.add_argument("--video", default=DEFAULT_VIDEO, help="Input video path")
-    parser.add_argument("--player-model", default=DEFAULT_PLAYER_MODEL)
-    parser.add_argument("--court-model", default=DEFAULT_COURT_MODEL)
-    parser.add_argument("--ball-model", default=DEFAULT_BALL_MODEL)
-    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    parser.add_argument(
-        "--no-player", action="store_true", help="Skip player detection"
-    )
-    parser.add_argument(
-        "--no-court", action="store_true", help="Skip court keypoint detection"
-    )
-    parser.add_argument("--no-ball", action="store_true", help="Skip ball detection")
-    parser.add_argument(
-        "--save-frames", action="store_true", help="Save individual annotated frames"
-    )
-    args = parser.parse_args()
-
-    # Validate inputs
-    assert Path(args.video).exists(), f"Video not found: {args.video}"
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    device = torch.device(
-        "mps"
-        if torch.backends.mps.is_available()
-        else "cuda"
-        if torch.cuda.is_available()
-        else "cpu"
-    )
-    print(f"Device: {device}")
-
-    # Load models
-    player_model = None
-    court_model = None
-
-    if not args.no_player:
-        print(f"Loading player detection model: {args.player_model}")
-        assert Path(args.player_model).exists(), (
-            f"Player model not found: {args.player_model}"
-        )
-        player_model = load_player_detection_model(args.player_model, device)
-        print("  Player detection model loaded.")
-
-    if not args.no_court:
-        print(f"Loading court keypoint model: {args.court_model}")
-        assert Path(args.court_model).exists(), (
-            f"Court model not found: {args.court_model}"
-        )
-        court_model = load_court_keypoint_model(args.court_model)
-        print("  Court keypoint model loaded.")
-
-    # Load ball detection model (RF-DETR, runs per-frame like other detectors)
-    ball_model = None
-    if not args.no_ball:
-        print(f"Loading ball detection model: {args.ball_model}")
-        assert Path(args.ball_model).exists(), (
-            f"Ball model not found: {args.ball_model}"
-        )
-        ball_model = load_ball_detection_model(args.ball_model, device)
-        print("  Ball detection model loaded.")
-
-    # Open video
-    cap = cv2.VideoCapture(args.video)
-    assert cap.isOpened(), f"Could not open video: {args.video}"
+def process_video(
+    video_path: str,
+    output_dir: str,
+    player_model,
+    court_model,
+    ball_model,
+    save_frames: bool = False,
+):
+    """Run all enabled models on a single video and write an annotated MP4."""
+    cap = cv2.VideoCapture(video_path)
+    assert cap.isOpened(), f"Could not open video: {video_path}"
 
     fps = cap.get(cv2.CAP_PROP_FPS)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    print(f"\nVideo: {args.video}")
+    print(f"\nVideo: {video_path}")
     print(f"  Resolution: {w}x{h}, FPS: {fps:.1f}, Frames: {total_frames}")
 
-    # Output video writer
-    output_path = os.path.join(args.output_dir, "test_inference_output.mp4")
+    stem = Path(video_path).stem
+    output_path = os.path.join(output_dir, f"{stem}_annotated.mp4")
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     out = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
 
-    # --- Supervision annotators ---
+    # ── Supervision annotators ──────────────────────────────────────────────
 
-    # Court keypoint annotators
-    edge_annotator = sv.EdgeAnnotator(
-        color=COURT_LINE_COLOR,
+    # Court segmentation — polygon outline only (no fill), so player pixels
+    # are never tinted by the court overlay colour.
+    polygon_annotator = sv.PolygonAnnotator(
+        color=COURT_PALETTE,
         thickness=2,
-        edges=SKELETON,
+        color_lookup=sv.ColorLookup.CLASS,
     )
-    vertex_annotator = sv.VertexAnnotator(
-        color=COURT_VERTEX_COLOR,
-        radius=4,
+    # Court class-name labels — printed at polygon centroid, coloured to match
+    # the corresponding outline, white text on coloured background.
+    court_label_annotator = sv.LabelAnnotator(
+        color=COURT_PALETTE,
+        text_color=sv.Color.WHITE,
+        text_scale=0.5,
+        text_thickness=1,
+        text_position=sv.Position.CENTER,
+        color_lookup=sv.ColorLookup.CLASS,
     )
 
     # Player detection annotators
@@ -279,15 +227,6 @@ def main():
         outline_thickness=2,
         outline_color=sv.Color.BLACK,
     )
-    ball_trace_annotator = sv.TraceAnnotator(
-        color=sv.ColorPalette.from_hex(["#00FFFF"]),
-        position=sv.Position.CENTER,
-        trace_length=int(fps * 1.5),
-        thickness=2,
-        color_lookup=sv.ColorLookup.TRACK,
-    )
-    ball_smoother = sv.DetectionsSmoother(length=5)
-
     # Tracker and smoother for temporal consistency
     tracker = sv.ByteTrack(
         track_activation_threshold=0.4,
@@ -313,26 +252,8 @@ def main():
 
         annotated = frame.copy()
 
-        # Court keypoint detection (draw first, underneath player annotations)
-        if court_model is not None:
-            try:
-                keypoints, raw_result = run_court_keypoint(court_model, frame)
-                if keypoints is not None and len(keypoints) > 0:
-                    annotated = edge_annotator.annotate(annotated, keypoints)
-                    annotated = vertex_annotator.annotate(annotated, keypoints)
-                    total_court_dets += 1
-
-                    if frame_idx % 10 == 0:
-                        n_kpts = 0
-                        if keypoints.xy is not None and len(keypoints.xy) > 0:
-                            kpts = keypoints.xy[0]
-                            n_kpts = np.sum((kpts[:, 0] > 0) & (kpts[:, 1] > 0))
-                        print(f"  Frame {frame_idx:4d} | Court keypoints: {n_kpts}/14")
-            except Exception as e:
-                if frame_idx == 0:
-                    print(f"  Court keypoint error: {e}")
-
-        # Player detection with tracking
+        # ── Step 1: Player detection + tracking ──
+        player_dets_for_frame = None
         if player_model is not None:
             try:
                 detections = run_player_detection(player_model, frame)
@@ -340,50 +261,80 @@ def main():
                     # Track and smooth
                     detections = tracker.update_with_detections(detections)
                     detections = smoother.update_with_detections(detections)
-
-                    # Build labels
-                    labels = []
-                    for i in range(len(detections)):
-                        cls_id = int(detections.class_id[i])
-                        conf = detections.confidence[i]
-                        name = (
-                            CLASS_NAMES[cls_id]
-                            if cls_id < len(CLASS_NAMES)
-                            else f"class_{cls_id}"
-                        )
-                        labels.append(f"{name} {conf:.2f}")
-
-                    # Annotate: trace + ellipse (narrowed) + semi-transparent triangle
-                    # Shrink boxes horizontally for a tighter ellipse
-                    narrow_xyxy = detections.xyxy.copy()
-                    cx = (narrow_xyxy[:, 0] + narrow_xyxy[:, 2]) / 2
-                    half_w = (narrow_xyxy[:, 2] - narrow_xyxy[:, 0]) * 0.35
-                    narrow_xyxy[:, 0] = cx - half_w
-                    narrow_xyxy[:, 2] = cx + half_w
-                    narrow = sv.Detections(
-                        xyxy=narrow_xyxy,
-                        confidence=detections.confidence,
-                        class_id=detections.class_id,
-                        tracker_id=detections.tracker_id,
-                    )
-                    annotated = ellipse_annotator.annotate(annotated, narrow)
-                    # Semi-transparent triangle
-                    overlay = annotated.copy()
-                    overlay = triangle_annotator.annotate(overlay, detections)
-                    cv2.addWeighted(overlay, 0.5, annotated, 0.5, 0, annotated)
-
+                    player_dets_for_frame = detections
                     total_player_dets += len(detections)
 
                     if frame_idx % 10 == 0:
-                        det_summary = ", ".join(labels)
+                        labels = []
+                        for i in range(len(detections)):
+                            cls_id = int(detections.class_id[i])
+                            conf = detections.confidence[i]
+                            name = (
+                                CLASS_NAMES[cls_id]
+                                if cls_id < len(CLASS_NAMES)
+                                else f"class_{cls_id}"
+                            )
+                            labels.append(f"{name} {conf:.2f}")
                         print(
-                            f"  Frame {frame_idx:4d} | Players: {len(detections)} [{det_summary}]"
+                            f"  Frame {frame_idx:4d} | Players: {len(detections)} [{', '.join(labels)}]"
                         )
                 elif frame_idx % 10 == 0:
                     print(f"  Frame {frame_idx:4d} | Players: 0 []")
             except Exception as e:
                 print(f"  Player detection error (frame {frame_idx}): {e}")
                 raise
+
+        # ── Step 2: Court segmentation — polygon outlines only (no fill) ──
+        if court_model is not None:
+            try:
+                court_dets = run_court_segmentation(court_model, frame)
+                if len(court_dets) > 0 and court_dets.mask is not None:
+                    annotated = polygon_annotator.annotate(annotated, court_dets)
+                    # Add class-name label at each polygon centroid
+                    court_labels = [
+                        COURT_CLASS_NAMES[int(c)] if int(c) < len(COURT_CLASS_NAMES)
+                        else f"class_{int(c)}"
+                        for c in court_dets.class_id
+                    ]
+                    annotated = court_label_annotator.annotate(
+                        annotated, court_dets, labels=court_labels
+                    )
+                    total_court_dets += 1
+
+                    if frame_idx % 10 == 0:
+                        names = [
+                            COURT_CLASS_NAMES[int(c)] if int(c) < len(COURT_CLASS_NAMES)
+                            else f"class_{int(c)}"
+                            for c in court_dets.class_id
+                        ]
+                        print(
+                            f"  Frame {frame_idx:4d} | Court regions: "
+                            f"{len(court_dets)} [{', '.join(names)}]"
+                        )
+            except Exception as e:
+                if frame_idx == 0:
+                    print(f"  Court segmentation error: {e}")
+
+        # ── Step 3: Draw player annotations on top of the court outline ──
+        if player_dets_for_frame is not None:
+            detections = player_dets_for_frame
+            # Shrink boxes horizontally for a tighter ellipse
+            narrow_xyxy = detections.xyxy.copy()
+            cx = (narrow_xyxy[:, 0] + narrow_xyxy[:, 2]) / 2
+            half_w = (narrow_xyxy[:, 2] - narrow_xyxy[:, 0]) * 0.35
+            narrow_xyxy[:, 0] = cx - half_w
+            narrow_xyxy[:, 2] = cx + half_w
+            narrow = sv.Detections(
+                xyxy=narrow_xyxy,
+                confidence=detections.confidence,
+                class_id=detections.class_id,
+                tracker_id=detections.tracker_id,
+            )
+            annotated = ellipse_annotator.annotate(annotated, narrow)
+            # Semi-transparent triangle
+            overlay = annotated.copy()
+            overlay = triangle_annotator.annotate(overlay, detections)
+            cv2.addWeighted(overlay, 0.5, annotated, 0.5, 0, annotated)
 
         # Ball detection with RF-DETR
         if ball_model is not None:
@@ -393,12 +344,7 @@ def main():
                     # Take highest confidence detection as "the ball"
                     best_idx = int(np.argmax(ball_detections.confidence))
                     best_det = ball_detections[best_idx : best_idx + 1]
-                    # Assign a stable tracker_id so TraceAnnotator can draw a trail
-                    best_det.tracker_id = np.array([0])
-
-                    # Smooth and annotate with supervision
-                    best_det = ball_smoother.update_with_detections(best_det)
-                    annotated = ball_trace_annotator.annotate(annotated, best_det)
+                    # Annotate with supervision (triangle only, no trail)
                     annotated = ball_triangle_annotator.annotate(annotated, best_det)
                     total_ball_dets += 1
 
@@ -415,9 +361,10 @@ def main():
         # Write frame
         out.write(annotated)
 
-        # Save individual frames if requested
-        if args.save_frames and frame_idx % 30 == 0:
-            frame_path = os.path.join(args.output_dir, f"frame_{frame_idx:04d}.jpg")
+        if save_frames and frame_idx % 30 == 0:
+            frame_path = os.path.join(
+                output_dir, f"{stem}_frame_{frame_idx:04d}.jpg"
+            )
             cv2.imwrite(frame_path, annotated)
 
         frame_idx += 1
@@ -427,22 +374,123 @@ def main():
     out.release()
 
     print("-" * 60)
-    print("\nResults:")
-    print(f"  Frames processed: {frame_idx}")
-    print(f"  Time: {elapsed:.1f}s ({frame_idx / elapsed:.1f} fps)")
+    print(f"  Frames processed : {frame_idx}")
+    print(f"  Time             : {elapsed:.1f}s ({frame_idx / elapsed:.1f} fps)")
     if player_model is not None:
         print(
-            f"  Total player detections: {total_player_dets}"
-            f" ({total_player_dets / max(frame_idx, 1):.1f} avg/frame)"
+            f"  Player dets      : {total_player_dets} "
+            f"({total_player_dets / max(frame_idx, 1):.1f}/frame)"
         )
     if court_model is not None:
-        print(f"  Court detections: {total_court_dets}/{frame_idx} frames")
+        print(f"  Court frames     : {total_court_dets}/{frame_idx}")
     if ball_model is not None:
         print(
-            f"  Ball detections: {total_ball_dets}/{frame_idx} frames"
-            f" ({total_ball_dets / max(frame_idx, 1) * 100:.1f}%)"
+            f"  Ball frames      : {total_ball_dets}/{frame_idx} "
+            f"({total_ball_dets / max(frame_idx, 1) * 100:.1f}%)"
         )
-    print(f"\n  Output video: {output_path}")
+    print(f"  Output           : {output_path}")
+    return output_path
+
+
+def collect_videos(video_arg: str | None) -> list[str]:
+    """Resolve --video into a concrete list of files.
+
+    - Explicit file path → that file (must exist).
+    - Explicit directory → every .mp4/.mov/.avi inside (sorted).
+    - None → DEFAULT_VIDEO_DIR.
+    """
+    target = Path(video_arg) if video_arg else Path(DEFAULT_VIDEO_DIR)
+    if target.is_file():
+        return [str(target)]
+    if target.is_dir():
+        clips = sorted(
+            p for p in target.iterdir()
+            if p.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv"}
+        )
+        if not clips:
+            raise FileNotFoundError(f"No video files found in {target}")
+        return [str(p) for p in clips]
+    raise FileNotFoundError(f"Video path not found: {target}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Run player + ball + court-seg pipeline on video(s)")
+    parser.add_argument(
+        "--video",
+        default=None,
+        help=(
+            "Video file OR directory of clips. "
+            f"Default: every video in {DEFAULT_VIDEO_DIR}/"
+        ),
+    )
+    parser.add_argument("--player-model", default=DEFAULT_PLAYER_MODEL)
+    parser.add_argument("--court-model", default=DEFAULT_COURT_MODEL)
+    parser.add_argument("--ball-model", default=DEFAULT_BALL_MODEL)
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--no-player", action="store_true")
+    parser.add_argument("--no-court", action="store_true")
+    parser.add_argument("--no-ball", action="store_true")
+    parser.add_argument(
+        "--save-frames",
+        action="store_true",
+        help="Also save every 30th annotated frame as JPG",
+    )
+    args = parser.parse_args()
+
+    videos = collect_videos(args.video)
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    device = torch.device(
+        "mps" if torch.backends.mps.is_available()
+        else "cuda" if torch.cuda.is_available()
+        else "cpu"
+    )
+    print(f"Device: {device}")
+    print(f"Videos to process: {len(videos)}")
+    for v in videos:
+        print(f"  - {v}")
+
+    # ── Load models once, reuse across videos ───────────────────────────────
+    player_model = None
+    court_model = None
+    ball_model = None
+
+    if not args.no_player:
+        print(f"\nLoading player detection model: {args.player_model}")
+        assert Path(args.player_model).exists(), f"Missing: {args.player_model}"
+        player_model = load_player_detection_model(args.player_model, device)
+        print("  ✓ Player model loaded.")
+
+    if not args.no_court:
+        print(f"Loading court segmentation model: {args.court_model}")
+        assert Path(args.court_model).exists(), f"Missing: {args.court_model}"
+        court_model = load_court_segmentation_model(args.court_model, device)
+        print("  ✓ Court segmentation model loaded.")
+
+    if not args.no_ball:
+        print(f"Loading ball detection model: {args.ball_model}")
+        assert Path(args.ball_model).exists(), f"Missing: {args.ball_model}"
+        ball_model = load_ball_detection_model(args.ball_model, device)
+        print("  ✓ Ball model loaded.")
+
+    # ── Process each video ──────────────────────────────────────────────────
+    outputs: list[str] = []
+    for video in videos:
+        print("\n" + "=" * 60)
+        out_path = process_video(
+            video_path=video,
+            output_dir=args.output_dir,
+            player_model=player_model,
+            court_model=court_model,
+            ball_model=ball_model,
+            save_frames=args.save_frames,
+        )
+        outputs.append(out_path)
+
+    print("\n" + "=" * 60)
+    print("All videos processed:")
+    for p in outputs:
+        print(f"  ✓ {p}")
 
 
 if __name__ == "__main__":
